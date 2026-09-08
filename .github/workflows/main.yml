@@ -2,137 +2,943 @@ name: Football API Sync
 
 on:
   workflow_dispatch:
+
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
 
 jobs:
   sync:
+
     runs-on: ubuntu-latest
 
     steps:
+
+      # ==========================================
+      # تحميل المستودع
+      # ==========================================
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # ==========================================
+      # Node.js
+      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # ==========================================
+      # تثبيت المكتبات
+      # ==========================================
       - name: Install Dependencies
         run: |
           npm init -y
           npm install axios firebase-admin
 
+      # ==========================================
+      # إنشاء سكربت المزامنة
+      # ==========================================
       - name: Create Sync Script
         run: |
+
           cat << 'EOF' > sync.js
+
           const axios = require('axios');
           const admin = require('firebase-admin');
 
-          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+          // =========================================================
+          // Firebase
+          // =========================================================
+
+          const serviceAccount =
+            JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
           if (!admin.apps.length) {
+
             admin.initializeApp({
-              credential: admin.credential.cert(serviceAccount),
-              databaseURL: process.env.FIREBASE_DATABASE_URL
+
+              credential:
+                admin.credential.cert(serviceAccount),
+
+              databaseURL:
+                process.env.FIREBASE_DATABASE_URL
+
             });
+
           }
 
           const db = admin.database();
 
-          async function fetchWithRetry(url, headers, retries = 3, delay = 2000) {
-            for (let i = 0; i < retries; i++) {
+
+          // =========================================================
+          // API
+          // =========================================================
+
+          const API_BASE =
+            'https://v3.football.api-sports.io';
+
+          const apiKey =
+            process.env.API_FOOTBALL_KEY;
+
+          const headers = {
+
+            'x-apisports-key':
+              apiKey
+
+          };
+
+
+          // =========================================================
+          // الدوريات المطلوبة
+          // =========================================================
+
+          const TOP_LEAGUES = new Set([
+
+            2,
+            39,
+            140,
+            135,
+            78,
+            61,
+            307
+
+          ]);
+
+
+          // =========================================================
+          // طلب API مع إعادة المحاولة
+          // =========================================================
+
+          async function fetchWithRetry(
+            url,
+            retries = 3,
+            delay = 2000
+          ) {
+
+            for (
+              let attempt = 1;
+              attempt <= retries;
+              attempt++
+            ) {
+
               try {
-                const response = await axios.get(url, { headers, timeout: 10000 });
+
+                const response =
+                  await axios.get(
+                    url,
+                    {
+                      headers: headers,
+                      timeout: 15000
+                    }
+                  );
+
                 return response.data;
+
               } catch (error) {
-                if (i === retries - 1) throw error;
-                await new Promise(res => setTimeout(res, delay));
+
+                console.log(
+                  `Request failed (${attempt}/${retries}): ${url}`
+                );
+
+                if (attempt === retries) {
+
+                  throw error;
+
+                }
+
+                await new Promise(
+                  resolve =>
+                    setTimeout(resolve, delay)
+                );
+
               }
+
             }
+
           }
 
-          async function syncFootballData() {
-            const apiKey = process.env.API_FOOTBALL_KEY;
-            const headers = {
-              'x-apisports-key': apiKey
-            };
 
-            // ضبط التوقيت المحلي بدقة لتلافي فرق ساعات سيرفرات غيت هب (UTC)
-            const now = new Date();
-            const localOffset = 3 * 60; // 3 ساعات+ (يمكنك تغيير الرقم 3 حسب توقيت دولتك إذا لزم الأمر)
-            const localDate = new Date(now.getTime() + (localOffset - now.getTimezoneOffset()) * 60000);
-            
-            const today = localDate.toISOString().split('T')[0];
-            
-            const y = new Date(localDate);
-            y.setDate(y.getDate() - 1);
-            const yesterday = y.toISOString().split('T')[0];
+          // =========================================================
+          // التاريخ المحلي
+          // =========================================================
+
+          function getLocalDate(offsetHours = 3) {
+
+            const now =
+              new Date();
+
+            const utc =
+              now.getTime() +
+              now.getTimezoneOffset() * 60000;
+
+            return new Date(
+              utc +
+              offsetHours * 60 * 60000
+            );
+
+          }
+
+
+          // =========================================================
+          // تحويل التاريخ إلى YYYY-MM-DD
+          // =========================================================
+
+          function formatDate(date) {
+
+            return date
+              .toISOString()
+              .split('T')[0];
+
+          }
+
+
+          // =========================================================
+          // حالات المباراة
+          // =========================================================
+
+          const LIVE_STATUSES = new Set([
+
+            '1H',
+            'HT',
+            '2H',
+            'ET',
+            'P',
+            'LIVE'
+
+          ]);
+
+
+          const FINISHED_STATUSES = new Set([
+
+            'FT',
+            'AET',
+            'PEN'
+
+          ]);
+
+
+          const CANCELLED_STATUSES = new Set([
+
+            'CANC',
+            'ABD',
+            'AWD',
+            'WO'
+
+          ]);
+
+
+          // =========================================================
+          // تحديد حالة المباراة
+          // =========================================================
+
+          function getMatchSection(item) {
+
+            if (
+              !item ||
+              !item.fixture ||
+              !item.fixture.status
+            ) {
+
+              return 'matches';
+
+            }
+
+            const status =
+              item.fixture.status.short;
+
+            if (
+              LIVE_STATUSES.has(status)
+            ) {
+
+              return 'live';
+
+            }
+
+            if (
+              FINISHED_STATUSES.has(status) ||
+              CANCELLED_STATUSES.has(status)
+            ) {
+
+              return 'finished';
+
+            }
+
+            return 'matches';
+
+          }
+
+
+          // =========================================================
+          // التحقق من الدوري
+          // =========================================================
+
+          function isAllowedLeague(item) {
 
             try {
-              console.log('Fetching live fixtures...');
-              const liveData = await fetchWithRetry('https://v3.football.api-sports.io/fixtures?live=all', headers);
-              
-              console.log(`Fetching today fixtures (${today})...`);
-              const todayData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures?date=${today}`, headers);
 
-              console.log(`Fetching yesterday fixtures (${yesterday})...`);
-              const yesterdayData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures?date=${yesterday}`, headers);
+              const leagueId =
+                Number(
+                  item.league.id
+                );
 
-              const fixturesMap = new Map();
+              return TOP_LEAGUES.has(
+                leagueId
+              );
 
-              if (yesterdayData.response) {
-                yesterdayData.response.forEach(item => fixturesMap.set(item.fixture.id, item));
-              }
-              if (todayData.response) {
-                todayData.response.forEach(item => fixturesMap.set(item.fixture.id, item));
-              }
-              if (liveData.response) {
-                liveData.response.forEach(item => fixturesMap.set(item.fixture.id, item));
-              }
-
-              const fixtures = Array.from(fixturesMap.values());
-              console.log(`Total unique fixtures to process: ${fixtures.length}`);
-
-              for (const item of fixtures) {
-                const fixtureId = item.fixture.id;
-                
-                try {
-                  const lineupsData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures/lineups?fixture=${fixtureId}`, headers);
-                  item.lineups = lineupsData.response || [];
-                } catch (e) {
-                  item.lineups = [];
-                }
-
-                try {
-                  const eventsData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures/events?fixture=${fixtureId}`, headers);
-                  item.events = eventsData.response || [];
-                } catch (e) {
-                  item.events = [];
-                }
-
-                await db.ref(`matches/${fixtureId}`).set(item);
-                if (['1H', 'HT', '2H', 'ET', 'P', 'LIVE'].includes(item.fixture.status.short)) {
-                  await db.ref(`live/${fixtureId}`).set(item);
-                } else {
-                  await db.ref(`live/${fixtureId}`).remove();
-                }
-              }
-
-              console.log('Synchronization completed successfully!');
-              process.exit(0);
             } catch (error) {
-              console.error('Error during sync:', error.message);
-              process.exit(1);
+
+              return false;
+
             }
+
           }
 
+
+          // =========================================================
+          // جلب بيانات إضافية
+          //
+          // مهم:
+          // لا نجلب lineups/events لكل مباراة
+          // في كل تشغيل لتقليل استهلاك API.
+          //
+          // يتم جلبها فقط للمباريات المباشرة.
+          // =========================================================
+
+          async function addLiveDetails(item) {
+
+            const fixtureId =
+              item.fixture.id;
+
+            try {
+
+              const eventsData =
+                await fetchWithRetry(
+                  `${API_BASE}/fixtures/events?fixture=${fixtureId}`
+                );
+
+              item.events =
+                eventsData.response || [];
+
+            } catch (error) {
+
+              console.log(
+                `Events failed for ${fixtureId}`
+              );
+
+            }
+
+
+            try {
+
+              const lineupsData =
+                await fetchWithRetry(
+                  `${API_BASE}/fixtures/lineups?fixture=${fixtureId}`
+                );
+
+              item.lineups =
+                lineupsData.response || [];
+
+            } catch (error) {
+
+              console.log(
+                `Lineups failed for ${fixtureId}`
+              );
+
+            }
+
+          }
+
+
+          // =========================================================
+          // معالجة مباراة واحدة
+          // =========================================================
+
+          async function processFixture(item) {
+
+            if (
+              !item ||
+              !item.fixture ||
+              !item.fixture.id
+            ) {
+
+              return;
+
+            }
+
+
+            const fixtureId =
+              String(
+                item.fixture.id
+              );
+
+
+            // ---------------------------------------------
+            // تجاهل الدوريات غير المطلوبة
+            // ---------------------------------------------
+
+            if (
+              !isAllowedLeague(item)
+            ) {
+
+              return;
+
+            }
+
+
+            const section =
+              getMatchSection(item);
+
+
+            console.log(
+              `Fixture ${fixtureId} -> ${section}`
+            );
+
+
+            // =====================================================
+            // LIVE
+            // =====================================================
+
+            if (
+              section === 'live'
+            ) {
+
+              await addLiveDetails(item);
+
+
+              // وضع النسخة الحديثة في live
+              await db
+                .ref(`live/${fixtureId}`)
+                .set(item);
+
+
+              // إزالة النسخة القديمة من matches
+              await db
+                .ref(`matches/${fixtureId}`)
+                .remove();
+
+
+              // إزالة النسخة القديمة من finished
+              await db
+                .ref(`finished/${fixtureId}`)
+                .remove();
+
+
+              return;
+
+            }
+
+
+            // =====================================================
+            // FINISHED
+            // =====================================================
+
+            if (
+              section === 'finished'
+            ) {
+
+              // وضع آخر نسخة في finished
+              await db
+                .ref(`finished/${fixtureId}`)
+                .set(item);
+
+
+              // حذفها من live
+              await db
+                .ref(`live/${fixtureId}`)
+                .remove();
+
+
+              // حذفها من matches
+              await db
+                .ref(`matches/${fixtureId}`)
+                .remove();
+
+
+              return;
+
+            }
+
+
+            // =====================================================
+            // MATCHES
+            // =====================================================
+
+            await db
+              .ref(`matches/${fixtureId}`)
+              .set(item);
+
+
+            // التأكد من عدم وجود نسخة قديمة
+            // في live أو finished
+            await db
+              .ref(`live/${fixtureId}`)
+              .remove();
+
+
+            await db
+              .ref(`finished/${fixtureId}`)
+              .remove();
+
+          }
+
+
+          // =========================================================
+          // تنظيف المباريات القديمة
+          // =========================================================
+
+          async function cleanupOldMatches() {
+
+            console.log(
+              'Cleaning old matches...'
+            );
+
+
+            const matchesSnapshot =
+              await db
+                .ref('matches')
+                .once('value');
+
+
+            const updates = {};
+
+
+            matchesSnapshot.forEach(
+              child => {
+
+                const item =
+                  child.val();
+
+                if (
+                  !item ||
+                  !item.fixture ||
+                  !item.fixture.date
+                ) {
+
+                  return;
+
+                }
+
+
+                const status =
+                  item.fixture.status
+                    ? item.fixture.status.short
+                    : '';
+
+
+                // إذا أصبحت المباراة منتهية
+                // لا يجب أن تبقى في matches
+                if (
+                  FINISHED_STATUSES.has(status) ||
+                  CANCELLED_STATUSES.has(status)
+                ) {
+
+                  updates[
+                    `matches/${child.key}`
+                  ] = null;
+
+                }
+
+              }
+            );
+
+
+            if (
+              Object.keys(updates).length > 0
+            ) {
+
+              await db
+                .ref()
+                .update(updates);
+
+            }
+
+          }
+
+
+          // =========================================================
+          // المزامنة الرئيسية
+          // =========================================================
+
+          async function syncFootballData() {
+
+            try {
+
+              console.log(
+                '========================================'
+              );
+
+              console.log(
+                'Starting Football API synchronization'
+              );
+
+              console.log(
+                '========================================'
+              );
+
+
+              // -----------------------------------------------------
+              // التاريخ المحلي للعراق UTC+3
+              // -----------------------------------------------------
+
+              const localDate =
+                getLocalDate(3);
+
+
+              const today =
+                formatDate(
+                  localDate
+                );
+
+
+              const yesterdayDate =
+                new Date(
+                  localDate
+                );
+
+
+              yesterdayDate.setDate(
+                yesterdayDate.getDate() - 1
+              );
+
+
+              const yesterday =
+                formatDate(
+                  yesterdayDate
+                );
+
+
+              console.log(
+                `Today: ${today}`
+              );
+
+              console.log(
+                `Yesterday: ${yesterday}`
+              );
+
+
+              // =====================================================
+              // جلب المباريات المباشرة
+              // =====================================================
+
+              console.log(
+                'Fetching LIVE fixtures...'
+              );
+
+
+              const liveData =
+                await fetchWithRetry(
+                  `${API_BASE}/fixtures?live=all`
+                );
+
+
+              // =====================================================
+              // جلب مباريات اليوم
+              // =====================================================
+
+              console.log(
+                `Fetching TODAY fixtures...`
+              );
+
+
+              const todayData =
+                await fetchWithRetry(
+                  `${API_BASE}/fixtures?date=${today}`
+                );
+
+
+              // =====================================================
+              // جلب مباريات الأمس
+              //
+              // نحتاجها فقط لاكتشاف المباريات التي انتهت
+              // =====================================================
+
+              console.log(
+                `Fetching YESTERDAY fixtures...`
+              );
+
+
+              const yesterdayData =
+                await fetchWithRetry(
+                  `${API_BASE}/fixtures?date=${yesterday}`
+                );
+
+
+              // =====================================================
+              // دمج البيانات بدون تكرار
+              // =====================================================
+
+              const fixturesMap =
+                new Map();
+
+
+              if (
+                yesterdayData &&
+                yesterdayData.response
+              ) {
+
+                for (
+                  const item
+                  of yesterdayData.response
+                ) {
+
+                  if (
+                    item &&
+                    item.fixture &&
+                    item.fixture.id
+                  ) {
+
+                    fixturesMap.set(
+                      item.fixture.id,
+                      item
+                    );
+
+                  }
+
+                }
+
+              }
+
+
+              if (
+                todayData &&
+                todayData.response
+              ) {
+
+                for (
+                  const item
+                  of todayData.response
+                ) {
+
+                  if (
+                    item &&
+                    item.fixture &&
+                    item.fixture.id
+                  ) {
+
+                    fixturesMap.set(
+                      item.fixture.id,
+                      item
+                    );
+
+                  }
+
+                }
+
+              }
+
+
+              // LIVE أخيرًا حتى تكون بيانات المباريات
+              // المباشرة هي الأحدث
+              if (
+                liveData &&
+                liveData.response
+              ) {
+
+                for (
+                  const item
+                  of liveData.response
+                ) {
+
+                  if (
+                    item &&
+                    item.fixture &&
+                    item.fixture.id
+                  ) {
+
+                    fixturesMap.set(
+                      item.fixture.id,
+                      item
+                    );
+
+                  }
+
+                }
+
+              }
+
+
+              const fixtures =
+                Array.from(
+                  fixturesMap.values()
+                );
+
+
+              console.log(
+                `Total unique fixtures: ${fixtures.length}`
+              );
+
+
+              // =====================================================
+              // معالجة المباريات
+              // =====================================================
+
+              for (
+                const item
+                of fixtures
+              ) {
+
+                try {
+
+                  await processFixture(
+                    item
+                  );
+
+                } catch (error) {
+
+                  console.error(
+                    `Fixture processing error: ${
+                      item.fixture
+                        ? item.fixture.id
+                        : 'unknown'
+                    }`,
+                    error.message
+                  );
+
+                }
+
+              }
+
+
+              // =====================================================
+              // تنظيف matches
+              // =====================================================
+
+              await cleanupOldMatches();
+
+
+              // =====================================================
+              // تنظيف finished القديم
+              //
+              // نحذف ما هو أقدم من يومين لتقليل حجم Firebase
+              // =====================================================
+
+              const finishedSnapshot =
+                await db
+                  .ref('finished')
+                  .once('value');
+
+
+              const finishedUpdates = {};
+
+
+              const now =
+                Date.now();
+
+
+              const TWO_DAYS =
+                2 * 24 * 60 * 60 * 1000;
+
+
+              finishedSnapshot.forEach(
+                child => {
+
+                  try {
+
+                    const item =
+                      child.val();
+
+
+                    if (
+                      !item ||
+                      !item.fixture ||
+                      !item.fixture.date
+                    ) {
+
+                      return;
+
+                    }
+
+
+                    const matchTime =
+                      new Date(
+                        item.fixture.date
+                      ).getTime();
+
+
+                    if (
+                      !isNaN(matchTime) &&
+                      now - matchTime >
+                        TWO_DAYS
+                    ) {
+
+                      finishedUpdates[
+                        `finished/${child.key}`
+                      ] = null;
+
+                    }
+
+                  } catch (error) {
+
+                  }
+
+                }
+              );
+
+
+              if (
+                Object.keys(
+                  finishedUpdates
+                ).length > 0
+              ) {
+
+                await db
+                  .ref()
+                  .update(
+                    finishedUpdates
+                  );
+
+              }
+
+
+              console.log(
+                '========================================'
+              );
+
+              console.log(
+                'Synchronization completed successfully!'
+              );
+
+              console.log(
+                '========================================'
+              );
+
+
+              process.exit(0);
+
+
+            } catch (error) {
+
+              console.error(
+                'Synchronization error:',
+                error.message
+              );
+
+
+              process.exit(1);
+
+            }
+
+          }
+
+
+          // =========================================================
+          // بدء المزامنة
+          // =========================================================
+
           syncFootballData();
+
           EOF
 
+      # ==========================================
+      # تشغيل المزامنة
+      # ==========================================
       - name: Run Sync
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: node sync.js
+
+        run: |
+
+          node sync.js
