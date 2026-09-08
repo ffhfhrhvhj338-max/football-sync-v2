@@ -58,10 +58,14 @@ jobs:
               'x-apisports-key': apiKey
             };
 
-            const d = new Date();
-            const today = d.toISOString().split('T')[0];
+            // ضبط التوقيت المحلي بدقة لتلافي فرق ساعات سيرفرات غيت هب (UTC)
+            const now = new Date();
+            const localOffset = 3 * 60; // 3 ساعات+ (يمكنك تغيير الرقم 3 حسب توقيت دولتك إذا لزم الأمر)
+            const localDate = new Date(now.getTime() + (localOffset - now.getTimezoneOffset()) * 60000);
             
-            const y = new Date(d);
+            const today = localDate.toISOString().split('T')[0];
+            
+            const y = new Date(localDate);
             y.setDate(y.getDate() - 1);
             const yesterday = y.toISOString().split('T')[0];
 
