@@ -58,22 +58,33 @@ jobs:
               'x-apisports-key': apiKey
             };
 
-            const today = new Date().toISOString().split('T')[0];
+            const d = new Date();
+            const today = d.toISOString().split('T')[0];
+            
+            const y = new Date(d);
+            y.setDate(y.getDate() - 1);
+            const yesterday = y.toISOString().split('T')[0];
 
             try {
               console.log('Fetching live fixtures...');
               const liveData = await fetchWithRetry('https://v3.football.api-sports.io/fixtures?live=all', headers);
               
-              console.log('Fetching today fixtures...');
+              console.log(`Fetching today fixtures (${today})...`);
               const todayData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures?date=${today}`, headers);
+
+              console.log(`Fetching yesterday fixtures (${yesterday})...`);
+              const yesterdayData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures?date=${yesterday}`, headers);
 
               const fixturesMap = new Map();
 
-              if (liveData.response) {
-                liveData.response.forEach(item => fixturesMap.set(item.fixture.id, item));
+              if (yesterdayData.response) {
+                yesterdayData.response.forEach(item => fixturesMap.set(item.fixture.id, item));
               }
               if (todayData.response) {
                 todayData.response.forEach(item => fixturesMap.set(item.fixture.id, item));
+              }
+              if (liveData.response) {
+                liveData.response.forEach(item => fixturesMap.set(item.fixture.id, item));
               }
 
               const fixtures = Array.from(fixturesMap.values());
@@ -82,12 +93,10 @@ jobs:
               for (const item of fixtures) {
                 const fixtureId = item.fixture.id;
                 
-                // Fetch Lineups & Events for each fixture
                 try {
                   const lineupsData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures/lineups?fixture=${fixtureId}`, headers);
                   item.lineups = lineupsData.response || [];
                 } catch (e) {
-                  console.error(`Failed to fetch lineups for ${fixtureId}:`, e.message);
                   item.lineups = [];
                 }
 
@@ -95,11 +104,9 @@ jobs:
                   const eventsData = await fetchWithRetry(`https://v3.football.api-sports.io/fixtures/events?fixture=${fixtureId}`, headers);
                   item.events = eventsData.response || [];
                 } catch (e) {
-                  console.error(`Failed to fetch events for ${fixtureId}:`, e.message);
                   item.events = [];
                 }
 
-                // Save to Firebase
                 await db.ref(`matches/${fixtureId}`).set(item);
                 if (['1H', 'HT', '2H', 'ET', 'P', 'LIVE'].includes(item.fixture.status.short)) {
                   await db.ref(`live/${fixtureId}`).set(item);
