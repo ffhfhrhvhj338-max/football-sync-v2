@@ -240,7 +240,7 @@ jobs:
 
 
           // =====================================================
-          // الحصول على ساعة بغداد
+          // ساعة بغداد
           // =====================================================
 
           function getBaghdadHour() {
@@ -271,6 +271,68 @@ jobs:
                 new Date()
               )
             );
+          }
+
+
+          // =====================================================
+          // دقيقة بغداد
+          // =====================================================
+
+          function getBaghdadMinute() {
+
+            const formatter =
+              new Intl.DateTimeFormat(
+
+                'en-US',
+
+                {
+
+                  timeZone:
+                    TIMEZONE,
+
+                  minute:
+                    '2-digit',
+
+                  hour:
+                    '2-digit',
+
+                  hour12:
+                    false
+
+                }
+
+              );
+
+
+            const parts =
+              formatter.formatToParts(
+                new Date()
+              );
+
+
+            let minute = 0;
+
+
+            for (
+              const part
+              of parts
+            ) {
+
+              if (
+                part.type === 'minute'
+              ) {
+
+                minute =
+                  Number(
+                    part.value
+                  );
+
+                break;
+              }
+            }
+
+
+            return minute;
           }
 
 
@@ -356,12 +418,6 @@ jobs:
 
           // =====================================================
           // تحديث الدقيقة للمباراة المباشرة
-          //
-          // نستخدم elapsed الذي أعاده API
-          // ثم نضيف الوقت الذي مر أثناء طلب API
-          //
-          // هذا يجعل الرقم الموجود في Firebase
-          // أقرب وقت ممكن للحظة الحفظ.
           // =====================================================
 
           function updateLiveElapsed(
@@ -423,23 +479,29 @@ jobs:
 
 
               if (elapsed < 0) {
+
                 elapsed = 0;
+
               }
 
 
-              // الوقت الذي مر منذ وصول رد API
               const secondsAfterResponse =
                 Math.floor(
+
                   (
                     Date.now() -
                     responseTime
+
                   ) / 1000
+
                 );
 
 
               const additionalMinutes =
                 Math.floor(
+
                   secondsAfterResponse / 60
+
                 );
 
 
@@ -462,6 +524,7 @@ jobs:
               console.log(
                 'ELAPSED UPDATE ERROR'
               );
+
 
               console.log(
                 error.message
@@ -699,7 +762,7 @@ jobs:
 
 
               // =================================================
-              // تاريخ بغداد
+              // الوقت في بغداد
               // =================================================
 
               const today =
@@ -724,6 +787,10 @@ jobs:
                 getBaghdadHour();
 
 
+              const minute =
+                getBaghdadMinute();
+
+
               console.log(
                 `Yesterday: ${yesterday}`
               );
@@ -744,27 +811,85 @@ jobs:
               );
 
 
+              console.log(
+                `Baghdad Minute: ${minute}`
+              );
+
+
               // =================================================
-              // مباريات اليوم
+              // كل 5 دقائق
+              //
+              // جلب المباريات المباشرة فقط
               // =================================================
 
-              const todayResult =
+              console.log(
+                'LIVE MATCHES UPDATE START'
+              );
+
+
+              const liveResult =
                 await fetchAPI(
 
-                  `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
+                  `${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`
 
                 );
 
 
               await saveFixtures(
-                todayResult
+                liveResult
               );
+
+
+              console.log(
+                'LIVE MATCHES UPDATE COMPLETED'
+              );
+
+
+              // =================================================
+              // كل 15 دقيقة
+              //
+              // جلب مباريات اليوم كاملة
+              //
+              // هذا يحدث عندما تكون الدقيقة:
+              // 00 أو 15 أو 30 أو 45
+              // =================================================
+
+              if (
+                minute % 15 === 0
+              ) {
+
+                console.log(
+                  'TODAY UPDATE START'
+                );
+
+
+                const todayResult =
+                  await fetchAPI(
+
+                    `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
+
+                  );
+
+
+                await saveFixtures(
+                  todayResult
+                );
+
+
+                console.log(
+                  'TODAY UPDATE COMPLETED'
+                );
+              }
 
 
               // =================================================
               // مرة واحدة يوميًا
               //
-              // الأمس + الغد
+              // الساعة 00 بتوقيت بغداد
+              //
+              // جلب:
+              // الأمس
+              // الغد
               // =================================================
 
               if (
