@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/15 * * * *"
 
 jobs:
   sync:
@@ -34,22 +34,28 @@ jobs:
           const axios = require('axios');
           const admin = require('firebase-admin');
 
+
           // =====================================================
           // FIREBASE
           // =====================================================
 
           const serviceAccount =
-            JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+            JSON.parse(
+              process.env.FIREBASE_SERVICE_ACCOUNT
+            );
 
           admin.initializeApp({
             credential:
-              admin.credential.cert(serviceAccount),
+              admin.credential.cert(
+                serviceAccount
+              ),
 
             databaseURL:
               process.env.FIREBASE_DATABASE_URL
           });
 
-          const db = admin.database();
+          const db =
+            admin.database();
 
 
           // =====================================================
@@ -60,6 +66,7 @@ jobs:
             'https://v3.football.api-sports.io';
 
           const headers = {
+
             'x-apisports-key':
               process.env.API_FOOTBALL_KEY,
 
@@ -80,86 +87,76 @@ jobs:
           // الدوريات المطلوبة
           // =====================================================
 
-          const TOP_LEAGUES = new Set([
-            1,      // World Cup
-            2,      // Champions League
-            3,      // Europa League
-            4,      // Euro Championship
-            9,      // World Cup Women
-            11,     // Friendlies
-            15,     // FIFA Club World Cup
-            39,     // Premier League
-            61,     // Ligue 1
-            78,     // Bundesliga
-            135,    // Serie A
-            140,    // La Liga
-            307,    // Saudi Pro League
-            848     // Conference League
-          ]);
+          const TOP_LEAGUES =
+            new Set([
+
+              1,
+              2,
+              3,
+              4,
+              9,
+              11,
+              15,
+              39,
+              61,
+              78,
+              135,
+              140,
+              307,
+              848
+
+            ]);
 
 
           // =====================================================
-          // طلب API مع إعادة المحاولة
+          // طلب API
           // =====================================================
 
           async function fetchAPI(url) {
 
-            for (
-              let attempt = 1;
-              attempt <= 3;
-              attempt++
-            ) {
+            try {
 
-              try {
+              console.log(
+                `API Request: ${url}`
+              );
 
-                console.log(
-                  `API Request ${attempt}: ${url}`
+              const response =
+                await axios.get(
+                  url,
+                  {
+                    headers:
+                      headers,
+
+                    timeout:
+                      20000
+                  }
                 );
 
-                const response =
-                  await axios.get(
-                    url,
-                    {
-                      headers: headers,
-                      timeout: 20000
-                    }
-                  );
+              return response.data;
 
-                return response.data;
+            } catch (error) {
 
-              } catch (error) {
+              console.log(
+                'API ERROR'
+              );
+
+              console.log(
+                error.message
+              );
+
+              if (
+                error.response &&
+                error.response.data
+              ) {
 
                 console.log(
-                  `Request failed: ${error.message}`
-                );
-
-                if (
-                  error.response &&
-                  error.response.data
-                ) {
-
-                  console.log(
-                    JSON.stringify(
-                      error.response.data
-                    )
-                  );
-                }
-
-                if (
-                  attempt === 3
-                ) {
-
-                  throw error;
-                }
-
-                await new Promise(
-                  resolve =>
-                    setTimeout(
-                      resolve,
-                      2000
-                    )
+                  JSON.stringify(
+                    error.response.data
+                  )
                 );
               }
+
+              throw error;
             }
           }
 
@@ -174,15 +171,51 @@ jobs:
               new Intl.DateTimeFormat(
                 'en-CA',
                 {
-                  timeZone: TIMEZONE,
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit'
+                  timeZone:
+                    TIMEZONE,
+
+                  year:
+                    'numeric',
+
+                  month:
+                    '2-digit',
+
+                  day:
+                    '2-digit'
                 }
               );
 
             return formatter.format(
               new Date()
+            );
+          }
+
+
+          // =====================================================
+          // الحصول على ساعة بغداد
+          // =====================================================
+
+          function getBaghdadHour() {
+
+            const formatter =
+              new Intl.DateTimeFormat(
+                'en-US',
+                {
+                  timeZone:
+                    TIMEZONE,
+
+                  hour:
+                    '2-digit',
+
+                  hour12:
+                    false
+                }
+              );
+
+            return Number(
+              formatter.format(
+                new Date()
+              )
             );
           }
 
@@ -209,7 +242,8 @@ jobs:
               );
 
             date.setUTCDate(
-              date.getUTCDate() + days
+              date.getUTCDate() +
+              days
             );
 
             return date
@@ -222,7 +256,9 @@ jobs:
           // فحص الدوري
           // =====================================================
 
-          function allowedLeague(item) {
+          function allowedLeague(
+            item
+          ) {
 
             try {
 
@@ -252,102 +288,12 @@ jobs:
 
 
           // =====================================================
-          // إضافة الأحداث والتشكيلات
-          // فقط للمباريات المباشرة
+          // حفظ مباراة
           // =====================================================
 
-          async function addLiveDetails(item) {
-
-            const fixtureId =
-              item.fixture.id;
-
-
-            // =================================================
-            // EVENTS
-            // =================================================
-
-            try {
-
-              const events =
-                await fetchAPI(
-                  `${API_BASE}/fixtures/events?fixture=${fixtureId}`
-                );
-
-              item.events =
-                events &&
-                events.response
-                  ? events.response
-                  : [];
-
-            } catch (error) {
-
-              console.log(
-                `Events error: ${fixtureId}`
-              );
-
-              item.events = [];
-            }
-
-
-            // =================================================
-            // LINEUPS
-            // =================================================
-
-            try {
-
-              const lineups =
-                await fetchAPI(
-                  `${API_BASE}/fixtures/lineups?fixture=${fixtureId}`
-                );
-
-              item.lineups =
-                lineups &&
-                lineups.response
-                  ? lineups.response
-                  : [];
-
-            } catch (error) {
-
-              console.log(
-                `Lineups error: ${fixtureId}`
-              );
-
-              item.lineups = [];
-            }
-          }
-
-
-          // =====================================================
-          // تحديد هل المباراة مباشرة
-          // =====================================================
-
-          function isLiveStatus(
-            status
+          async function saveFixture(
+            item
           ) {
-
-            const LIVE_STATUSES =
-              new Set([
-                '1H',
-                'HT',
-                '2H',
-                'ET',
-                'P',
-                'LIVE'
-              ]);
-
-            return LIVE_STATUSES.has(
-              status
-            );
-          }
-
-
-          // =====================================================
-          // حفظ المباراة
-          //
-          // كل شيء داخل matches فقط
-          // =====================================================
-
-          async function saveFixture(item) {
 
             if (
               !item ||
@@ -364,7 +310,9 @@ jobs:
             // =================================================
 
             if (
-              !allowedLeague(item)
+              !allowedLeague(
+                item
+              )
             ) {
 
               return;
@@ -385,42 +333,21 @@ jobs:
 
 
             console.log(
-              `Saving ${fixtureId} | Status: ${status}`
+              `Saving ${fixtureId} | ${status}`
             );
 
 
             // =================================================
-            // إذا المباراة مباشرة
-            //
-            // نضيف الأحداث والتشكيلات
-            // داخل نفس matches
-            // =================================================
-
-            if (
-              isLiveStatus(status)
-            ) {
-
-              await addLiveDetails(
-                item
-              );
-            }
-
-
-            // =================================================
-            // الحفظ النهائي
-            //
-            // لا live
-            // لا finished
-            // لا upcoming
-            //
-            // فقط matches
+            // حفظ داخل matches فقط
             // =================================================
 
             await db
               .ref(
                 `matches/${fixtureId}`
               )
-              .set(item);
+              .set(
+                item
+              );
 
 
             console.log(
@@ -430,20 +357,64 @@ jobs:
 
 
           // =====================================================
-          // حذف البيانات القديمة غير الصحيحة
-          //
-          // نحذف فقط:
-          // - العقد التالفة
-          //
-          // ولا نحذف FT
-          // ولا نحذف المباريات القديمة
-          // هنا.
+          // حفظ مجموعة مباريات
+          // =====================================================
+
+          async function saveFixtures(
+            data
+          ) {
+
+            if (
+              !data ||
+              !data.response
+            ) {
+
+              console.log(
+                'No fixtures response'
+              );
+
+              return;
+            }
+
+
+            console.log(
+              `Received ${data.response.length} fixtures`
+            );
+
+
+            for (
+              const item
+              of data.response
+            ) {
+
+              try {
+
+                await saveFixture(
+                  item
+                );
+
+              } catch (error) {
+
+                console.log(
+                  'SAVE ERROR'
+                );
+
+                console.log(
+                  error.message
+                );
+              }
+            }
+          }
+
+
+          // =====================================================
+          // تنظيف العقد التالفة فقط
           // =====================================================
 
           async function cleanupInvalidMatches() {
 
             console.log(
-              'Checking matches...'
+              'Checking Firebase matches...'
             );
 
 
@@ -474,7 +445,7 @@ jobs:
                   ] = null;
 
                   console.log(
-                    `Removed invalid match: ${child.key}`
+                    `Removed invalid: ${child.key}`
                   );
                 }
 
@@ -488,7 +459,15 @@ jobs:
 
               await db
                 .ref()
-                .update(updates);
+                .update(
+                  updates
+                );
+
+            } else {
+
+              console.log(
+                'No invalid matches found'
+              );
             }
           }
 
@@ -515,7 +494,7 @@ jobs:
 
 
               // =================================================
-              // تواريخ بغداد
+              // تاريخ بغداد
               // =================================================
 
               const today =
@@ -536,6 +515,10 @@ jobs:
                 );
 
 
+              const hour =
+                getBaghdadHour();
+
+
               console.log(
                 `Yesterday: ${yesterday}`
               );
@@ -548,19 +531,21 @@ jobs:
                 `Tomorrow: ${tomorrow}`
               );
 
-
-              // =================================================
-              // جلب مباريات الأمس
-              // =================================================
-
-              const yesterdayData =
-                await fetchAPI(
-                  `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
-                );
+              console.log(
+                `Baghdad Hour: ${hour}`
+              );
 
 
               // =================================================
-              // جلب مباريات اليوم
+              // الطلب الرئيسي
+              //
+              // هذا يحدث:
+              // - المباريات القادمة
+              // - المباريات المباشرة
+              // - النتائج
+              // - الحالات
+              //
+              // لأن API-Football يعيد حالة المباراة الحالية.
               // =================================================
 
               const todayData =
@@ -569,139 +554,70 @@ jobs:
                 );
 
 
-              // =================================================
-              // جلب مباريات الغد
-              // =================================================
-
-              const tomorrowData =
-                await fetchAPI(
-                  `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
-                );
-
-
-              // =================================================
-              // جلب المباريات المباشرة
-              //
-              // مهم حتى تتحدث حالة المباراة أثناء اللعب
-              // =================================================
-
-              const liveData =
-                await fetchAPI(
-                  `${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`
-                );
-
-
-              // =================================================
-              // دمج كل البيانات
-              //
-              // Map يمنع التكرار حسب fixture.id
-              // =================================================
-
-              const fixtures =
-                new Map();
-
-
-              function addFixtures(
-                data
-              ) {
-
-                if (
-                  !data ||
-                  !data.response
-                ) {
-
-                  return;
-                }
-
-
-                for (
-                  const item
-                  of data.response
-                ) {
-
-                  if (
-                    item &&
-                    item.fixture &&
-                    item.fixture.id
-                  ) {
-
-                    fixtures.set(
-                      String(
-                        item.fixture.id
-                      ),
-                      item
-                    );
-                  }
-                }
-              }
-
-
-              // =================================================
-              // الترتيب مهم:
-              //
-              // الأمس
-              // اليوم
-              // الغد
-              // المباشر أخيرًا لتحديث النسخة
-              // =================================================
-
-              addFixtures(
-                yesterdayData
-              );
-
-              addFixtures(
+              await saveFixtures(
                 todayData
               );
 
-              addFixtures(
-                tomorrowData
-              );
-
-              addFixtures(
-                liveData
-              );
-
-
-              console.log(
-                `Fixtures found: ${fixtures.size}`
-              );
-
 
               // =================================================
-              // حفظ جميع المباريات
+              // مرة واحدة يوميًا
+              //
+              // نجلب:
+              // - الأمس
+              // - الغد
+              //
+              // لتقليل استهلاك API.
+              //
+              // الساعة 00:00 - 00:59 بتوقيت بغداد.
               // =================================================
 
-              for (
-                const item
-                of fixtures.values()
+              if (
+                hour === 0
               ) {
 
-                try {
+                console.log(
+                  'DAILY UPDATE START'
+                );
 
-                  await saveFixture(
-                    item
+
+                // =============================================
+                // الأمس
+                // =============================================
+
+                const yesterdayData =
+                  await fetchAPI(
+                    `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
                   );
 
-                } catch (error) {
 
-                  console.log(
-                    `Fixture save error: ${
-                      item.fixture &&
-                      item.fixture.id
-                        ? item.fixture.id
-                        : 'unknown'
-                    }`
+                await saveFixtures(
+                  yesterdayData
+                );
+
+
+                // =============================================
+                // الغد
+                // =============================================
+
+                const tomorrowData =
+                  await fetchAPI(
+                    `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
                   );
 
-                  console.log(
-                    error.message
-                  );
-                }
+
+                await saveFixtures(
+                  tomorrowData
+                );
+
+
+                console.log(
+                  'DAILY UPDATE COMPLETED'
+                );
               }
 
 
               // =================================================
-              // تنظيف البيانات التالفة فقط
+              // تنظيف البيانات التالفة
               // =================================================
 
               await cleanupInvalidMatches();
@@ -720,7 +636,9 @@ jobs:
               );
 
 
-              process.exit(0);
+              process.exit(
+                0
+              );
 
             } catch (error) {
 
@@ -736,24 +654,14 @@ jobs:
                 error.message
               );
 
-              if (
-                error.response &&
-                error.response.data
-              ) {
-
-                console.error(
-                  JSON.stringify(
-                    error.response.data
-                  )
-                );
-              }
-
               console.error(
                 '======================================'
               );
 
 
-              process.exit(1);
+              process.exit(
+                1
+              );
             }
           }
 
