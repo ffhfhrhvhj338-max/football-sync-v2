@@ -61,64 +61,19 @@ jobs:
 
           const headers = {
             'x-apisports-key':
-              process.env.API_FOOTBALL_KEY
+              process.env.API_FOOTBALL_KEY,
+
+            'Accept':
+              'application/json'
           };
 
 
           // =====================================================
-          // توقيت بغداد / العراق
-          // UTC +3
+          // إعدادات
           // =====================================================
 
-          const BAGHDAD_OFFSET = 3;
-
-
-          function getBaghdadNow() {
-
-            const now = new Date();
-
-            const utc =
-              now.getTime() +
-              now.getTimezoneOffset() * 60000;
-
-            return new Date(
-              utc +
-              BAGHDAD_OFFSET * 60 * 60000
-            );
-          }
-
-
-          function formatDate(date) {
-
-            return date
-              .toISOString()
-              .substring(0, 10);
-          }
-
-
-          // =====================================================
-          // الحالات
-          // =====================================================
-
-          const LIVE_STATUSES = new Set([
-            '1H',
-            'HT',
-            '2H',
-            'ET',
-            'P',
-            'LIVE'
-          ]);
-
-
-          const FINISHED_STATUSES = new Set([
-            'FT',
-            'AET',
-            'PEN',
-            'CANC',
-            'ABD',
-            'AWD',
-            'WO'
-          ]);
+          const TIMEZONE =
+            'Asia/Baghdad';
 
 
           // =====================================================
@@ -126,23 +81,34 @@ jobs:
           // =====================================================
 
           const TOP_LEAGUES = new Set([
-            2,
-            39,
-            140,
-            135,
-            78,
-            61,
-            307
+            1,      // World Cup
+            2,      // Champions League
+            3,      // Europa League
+            4,      // Euro Championship
+            9,      // World Cup Women
+            11,     // Friendlies
+            15,     // FIFA Club World Cup
+            39,     // Premier League
+            61,     // Ligue 1
+            78,     // Bundesliga
+            135,    // Serie A
+            140,    // La Liga
+            307,    // Saudi Pro League
+            848     // Conference League
           ]);
 
 
           // =====================================================
-          // REQUEST
+          // طلب API مع إعادة المحاولة
           // =====================================================
 
           async function fetchAPI(url) {
 
-            for (let attempt = 1; attempt <= 3; attempt++) {
+            for (
+              let attempt = 1;
+              attempt <= 3;
+              attempt++
+            ) {
 
               try {
 
@@ -155,7 +121,7 @@ jobs:
                     url,
                     {
                       headers: headers,
-                      timeout: 15000
+                      timeout: 20000
                     }
                   );
 
@@ -167,13 +133,31 @@ jobs:
                   `Request failed: ${error.message}`
                 );
 
-                if (attempt === 3) {
+                if (
+                  error.response &&
+                  error.response.data
+                ) {
+
+                  console.log(
+                    JSON.stringify(
+                      error.response.data
+                    )
+                  );
+                }
+
+                if (
+                  attempt === 3
+                ) {
+
                   throw error;
                 }
 
                 await new Promise(
                   resolve =>
-                    setTimeout(resolve, 2000)
+                    setTimeout(
+                      resolve,
+                      2000
+                    )
                 );
               }
             }
@@ -181,42 +165,56 @@ jobs:
 
 
           // =====================================================
-          // تحديد القسم
+          // تاريخ بغداد الحالي
           // =====================================================
 
-          function getSection(item) {
+          function getBaghdadDate() {
 
-            if (
-              !item ||
-              !item.fixture ||
-              !item.fixture.status
-            ) {
+            const formatter =
+              new Intl.DateTimeFormat(
+                'en-CA',
+                {
+                  timeZone: TIMEZONE,
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit'
+                }
+              );
 
-              return 'matches';
-            }
-
-
-            const status =
-              item.fixture.status.short;
-
-
-            if (
-              LIVE_STATUSES.has(status)
-            ) {
-
-              return 'live';
-            }
+            return formatter.format(
+              new Date()
+            );
+          }
 
 
-            if (
-              FINISHED_STATUSES.has(status)
-            ) {
+          // =====================================================
+          // إضافة أو إنقاص يوم
+          // =====================================================
 
-              return 'finished';
-            }
+          function addDays(
+            dateString,
+            days
+          ) {
 
+            const parts =
+              dateString.split('-');
 
-            return 'matches';
+            const date =
+              new Date(
+                Date.UTC(
+                  Number(parts[0]),
+                  Number(parts[1]) - 1,
+                  Number(parts[2])
+                )
+              );
+
+            date.setUTCDate(
+              date.getUTCDate() + days
+            );
+
+            return date
+              .toISOString()
+              .substring(0, 10);
           }
 
 
@@ -228,14 +226,25 @@ jobs:
 
             try {
 
+              if (
+                !item ||
+                !item.league ||
+                !item.league.id
+              ) {
+
+                return false;
+              }
+
               const leagueId =
-                Number(item.league.id);
+                Number(
+                  item.league.id
+                );
 
               return TOP_LEAGUES.has(
                 leagueId
               );
 
-            } catch (e) {
+            } catch (error) {
 
               return false;
             }
@@ -243,7 +252,8 @@ jobs:
 
 
           // =====================================================
-          // تفاصيل المباريات المباشرة
+          // إضافة الأحداث والتشكيلات
+          // فقط للمباريات المباشرة
           // =====================================================
 
           async function addLiveDetails(item) {
@@ -252,7 +262,10 @@ jobs:
               item.fixture.id;
 
 
-            // الأحداث
+            // =================================================
+            // EVENTS
+            // =================================================
+
             try {
 
               const events =
@@ -261,19 +274,25 @@ jobs:
                 );
 
               item.events =
-                events.response || [];
+                events &&
+                events.response
+                  ? events.response
+                  : [];
 
-            } catch (e) {
+            } catch (error) {
 
               console.log(
-                `Events error ${fixtureId}`
+                `Events error: ${fixtureId}`
               );
 
               item.events = [];
             }
 
 
-            // التشكيلات
+            // =================================================
+            // LINEUPS
+            // =================================================
+
             try {
 
               const lineups =
@@ -282,12 +301,15 @@ jobs:
                 );
 
               item.lineups =
-                lineups.response || [];
+                lineups &&
+                lineups.response
+                  ? lineups.response
+                  : [];
 
-            } catch (e) {
+            } catch (error) {
 
               console.log(
-                `Lineups error ${fixtureId}`
+                `Lineups error: ${fixtureId}`
               );
 
               item.lineups = [];
@@ -296,7 +318,33 @@ jobs:
 
 
           // =====================================================
-          // نقل المباراة للقسم الصحيح
+          // تحديد هل المباراة مباشرة
+          // =====================================================
+
+          function isLiveStatus(
+            status
+          ) {
+
+            const LIVE_STATUSES =
+              new Set([
+                '1H',
+                'HT',
+                '2H',
+                'ET',
+                'P',
+                'LIVE'
+              ]);
+
+            return LIVE_STATUSES.has(
+              status
+            );
+          }
+
+
+          // =====================================================
+          // حفظ المباراة
+          //
+          // كل شيء داخل matches فقط
           // =====================================================
 
           async function saveFixture(item) {
@@ -311,11 +359,10 @@ jobs:
             }
 
 
-            const fixtureId =
-              String(item.fixture.id);
+            // =================================================
+            // فلترة الدوري
+            // =================================================
 
-
-            // إذا الدوري غير مطلوب
             if (
               !allowedLeague(item)
             ) {
@@ -324,8 +371,10 @@ jobs:
             }
 
 
-            const section =
-              getSection(item);
+            const fixtureId =
+              String(
+                item.fixture.id
+              );
 
 
             const status =
@@ -336,164 +385,65 @@ jobs:
 
 
             console.log(
-              `Fixture ${fixtureId} | Status: ${status} | Section: ${section}`
+              `Saving ${fixtureId} | Status: ${status}`
             );
 
 
             // =================================================
-            // LIVE
+            // إذا المباراة مباشرة
+            //
+            // نضيف الأحداث والتشكيلات
+            // داخل نفس matches
             // =================================================
 
-            if (section === 'live') {
+            if (
+              isLiveStatus(status)
+            ) {
 
-              await addLiveDetails(item);
-
-
-              await db
-                .ref(`live/${fixtureId}`)
-                .set(item);
-
-
-              await db
-                .ref(`matches/${fixtureId}`)
-                .remove();
-
-
-              await db
-                .ref(`finished/${fixtureId}`)
-                .remove();
-
-
-              return;
+              await addLiveDetails(
+                item
+              );
             }
 
 
             // =================================================
-            // FINISHED
-            // =================================================
-
-            if (section === 'finished') {
-
-              await db
-                .ref(`finished/${fixtureId}`)
-                .set(item);
-
-
-              await db
-                .ref(`live/${fixtureId}`)
-                .remove();
-
-
-              await db
-                .ref(`matches/${fixtureId}`)
-                .remove();
-
-
-              return;
-            }
-
-
-            // =================================================
-            // NOT STARTED
+            // الحفظ النهائي
+            //
+            // لا live
+            // لا finished
+            // لا upcoming
+            //
+            // فقط matches
             // =================================================
 
             await db
-              .ref(`matches/${fixtureId}`)
+              .ref(
+                `matches/${fixtureId}`
+              )
               .set(item);
 
 
-            await db
-              .ref(`live/${fixtureId}`)
-              .remove();
-
-
-            await db
-              .ref(`finished/${fixtureId}`)
-              .remove();
+            console.log(
+              `Saved matches/${fixtureId}`
+            );
           }
 
 
           // =====================================================
-          // تنظيف LIVE القديم
+          // حذف البيانات القديمة غير الصحيحة
           //
-          // إذا بقيت مباراة قديمة داخل live
-          // وكانت حالتها ليست LIVE فعليًا
-          // نحذفها من live.
+          // نحذف فقط:
+          // - العقد التالفة
+          //
+          // ولا نحذف FT
+          // ولا نحذف المباريات القديمة
+          // هنا.
           // =====================================================
 
-          async function cleanupLive() {
+          async function cleanupInvalidMatches() {
 
             console.log(
-              'Cleaning old LIVE matches...'
-            );
-
-
-            const snapshot =
-              await db
-                .ref('live')
-                .once('value');
-
-
-            const updates = {};
-
-
-            snapshot.forEach(
-              child => {
-
-                const item =
-                  child.val();
-
-
-                if (
-                  !item ||
-                  !item.fixture ||
-                  !item.fixture.status
-                ) {
-
-                  updates[
-                    `live/${child.key}`
-                  ] = null;
-
-                  return;
-                }
-
-
-                const status =
-                  item.fixture.status.short;
-
-
-                if (
-                  !LIVE_STATUSES.has(status)
-                ) {
-
-                  updates[
-                    `live/${child.key}`
-                  ] = null;
-                }
-
-              }
-            );
-
-
-            if (
-              Object.keys(updates).length > 0
-            ) {
-
-              await db
-                .ref()
-                .update(updates);
-            }
-          }
-
-
-          // =====================================================
-          // تنظيف matches القديمة
-          // =====================================================
-
-          async function cleanupMatches() {
-
-            console.log(
-              'Cleaning old matches...'
+              'Checking matches...'
             );
 
 
@@ -515,155 +465,17 @@ jobs:
 
                 if (
                   !item ||
-                  !item.fixture
-                ) {
-
-                  updates[
-                    `matches/${child.key}`
-                  ] = null;
-
-                  return;
-                }
-
-
-                const status =
-                  item.fixture.status &&
-                  item.fixture.status.short
-                    ? item.fixture.status.short
-                    : '';
-
-
-                // أي مباراة أصبحت منتهية
-                // لا تبقى في matches
-
-                if (
-                  FINISHED_STATUSES.has(status)
-                ) {
-
-                  updates[
-                    `matches/${child.key}`
-                  ] = null;
-
-                  return;
-                }
-
-
-                // أي مباراة قديمة جدًا
-                // نحذفها
-
-                if (
-                  item.fixture.date
-                ) {
-
-                  const matchTime =
-                    new Date(
-                      item.fixture.date
-                    ).getTime();
-
-
-                  if (
-                    !isNaN(matchTime)
-                  ) {
-
-                    const age =
-                      Date.now() -
-                      matchTime;
-
-
-                    const TWO_DAYS =
-                      2 *
-                      24 *
-                      60 *
-                      60 *
-                      1000;
-
-
-                    if (
-                      age > TWO_DAYS
-                    ) {
-
-                      updates[
-                        `matches/${child.key}`
-                      ] = null;
-                    }
-                  }
-                }
-
-              }
-            );
-
-
-            if (
-              Object.keys(updates).length > 0
-            ) {
-
-              await db
-                .ref()
-                .update(updates);
-            }
-          }
-
-
-          // =====================================================
-          // تنظيف FINISHED القديمة
-          // =====================================================
-
-          async function cleanupFinished() {
-
-            console.log(
-              'Cleaning old finished matches...'
-            );
-
-
-            const snapshot =
-              await db
-                .ref('finished')
-                .once('value');
-
-
-            const updates = {};
-
-
-            const TWO_DAYS =
-              2 *
-              24 *
-              60 *
-              60 *
-              1000;
-
-
-            snapshot.forEach(
-              child => {
-
-                const item =
-                  child.val();
-
-
-                if (
-                  !item ||
                   !item.fixture ||
-                  !item.fixture.date
-                ) {
-
-                  return;
-                }
-
-
-                const matchTime =
-                  new Date(
-                    item.fixture.date
-                  ).getTime();
-
-
-                if (
-                  !isNaN(matchTime) &&
-                  Date.now() - matchTime >
-                    TWO_DAYS
+                  !item.fixture.id
                 ) {
 
                   updates[
-                    `finished/${child.key}`
+                    `matches/${child.key}`
                   ] = null;
+
+                  console.log(
+                    `Removed invalid match: ${child.key}`
+                  );
                 }
 
               }
@@ -702,81 +514,109 @@ jobs:
               );
 
 
-              const baghdadNow =
-                getBaghdadNow();
-
+              // =================================================
+              // تواريخ بغداد
+              // =================================================
 
               const today =
-                formatDate(
-                  baghdadNow
-                );
-
-
-              const yesterdayDate =
-                new Date(
-                  baghdadNow
-                );
-
-
-              yesterdayDate.setDate(
-                yesterdayDate.getDate() - 1
-              );
+                getBaghdadDate();
 
 
               const yesterday =
-                formatDate(
-                  yesterdayDate
+                addDays(
+                  today,
+                  -1
                 );
 
 
-              console.log(
-                `Baghdad Date: ${today}`
-              );
+              const tomorrow =
+                addDays(
+                  today,
+                  1
+                );
 
 
               console.log(
                 `Yesterday: ${yesterday}`
               );
 
+              console.log(
+                `Today: ${today}`
+              );
+
+              console.log(
+                `Tomorrow: ${tomorrow}`
+              );
+
 
               // =================================================
-              // API
+              // جلب مباريات الأمس
+              // =================================================
+
+              const yesterdayData =
+                await fetchAPI(
+                  `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
+                );
+
+
+              // =================================================
+              // جلب مباريات اليوم
+              // =================================================
+
+              const todayData =
+                await fetchAPI(
+                  `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
+                );
+
+
+              // =================================================
+              // جلب مباريات الغد
+              // =================================================
+
+              const tomorrowData =
+                await fetchAPI(
+                  `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
+                );
+
+
+              // =================================================
+              // جلب المباريات المباشرة
+              //
+              // مهم حتى تتحدث حالة المباراة أثناء اللعب
               // =================================================
 
               const liveData =
                 await fetchAPI(
-                  `${API_BASE}/fixtures?live=all`
-                );
-
-
-              const todayData =
-                await fetchAPI(
-                  `${API_BASE}/fixtures?date=${today}`
-                );
-
-
-              const yesterdayData =
-                await fetchAPI(
-                  `${API_BASE}/fixtures?date=${yesterday}`
+                  `${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`
                 );
 
 
               // =================================================
-              // دمج المباريات بدون تكرار
+              // دمج كل البيانات
+              //
+              // Map يمنع التكرار حسب fixture.id
               // =================================================
 
               const fixtures =
                 new Map();
 
 
-              if (
-                liveData &&
-                liveData.response
+              function addFixtures(
+                data
               ) {
+
+                if (
+                  !data ||
+                  !data.response
+                ) {
+
+                  return;
+                }
+
 
                 for (
                   const item
-                  of liveData.response
+                  of data.response
                 ) {
 
                   if (
@@ -786,7 +626,9 @@ jobs:
                   ) {
 
                     fixtures.set(
-                      item.fixture.id,
+                      String(
+                        item.fixture.id
+                      ),
                       item
                     );
                   }
@@ -794,54 +636,30 @@ jobs:
               }
 
 
-              if (
-                todayData &&
-                todayData.response
-              ) {
+              // =================================================
+              // الترتيب مهم:
+              //
+              // الأمس
+              // اليوم
+              // الغد
+              // المباشر أخيرًا لتحديث النسخة
+              // =================================================
 
-                for (
-                  const item
-                  of todayData.response
-                ) {
+              addFixtures(
+                yesterdayData
+              );
 
-                  if (
-                    item &&
-                    item.fixture &&
-                    item.fixture.id
-                  ) {
+              addFixtures(
+                todayData
+              );
 
-                    fixtures.set(
-                      item.fixture.id,
-                      item
-                    );
-                  }
-                }
-              }
+              addFixtures(
+                tomorrowData
+              );
 
-
-              if (
-                yesterdayData &&
-                yesterdayData.response
-              ) {
-
-                for (
-                  const item
-                  of yesterdayData.response
-                ) {
-
-                  if (
-                    item &&
-                    item.fixture &&
-                    item.fixture.id
-                  ) {
-
-                    fixtures.set(
-                      item.fixture.id,
-                      item
-                    );
-                  }
-                }
-              }
+              addFixtures(
+                liveData
+              );
 
 
               console.log(
@@ -850,7 +668,7 @@ jobs:
 
 
               // =================================================
-              // حفظ
+              // حفظ جميع المباريات
               // =================================================
 
               for (
@@ -867,8 +685,9 @@ jobs:
                 } catch (error) {
 
                   console.log(
-                    `Fixture error: ${
-                      item.fixture
+                    `Fixture save error: ${
+                      item.fixture &&
+                      item.fixture.id
                         ? item.fixture.id
                         : 'unknown'
                     }`
@@ -882,14 +701,10 @@ jobs:
 
 
               // =================================================
-              // تنظيف
+              // تنظيف البيانات التالفة فقط
               // =================================================
 
-              await cleanupLive();
-
-              await cleanupMatches();
-
-              await cleanupFinished();
+              await cleanupInvalidMatches();
 
 
               console.log(
@@ -910,6 +725,10 @@ jobs:
             } catch (error) {
 
               console.error(
+                '======================================'
+              );
+
+              console.error(
                 'SYNC ERROR'
               );
 
@@ -917,10 +736,31 @@ jobs:
                 error.message
               );
 
+              if (
+                error.response &&
+                error.response.data
+              ) {
+
+                console.error(
+                  JSON.stringify(
+                    error.response.data
+                  )
+                );
+              }
+
+              console.error(
+                '======================================'
+              );
+
+
               process.exit(1);
             }
           }
 
+
+          // =====================================================
+          // START
+          // =====================================================
 
           sync();
 
