@@ -4,9 +4,11 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
+
 
 jobs:
+
   sync:
 
     runs-on: ubuntu-latest
@@ -16,15 +18,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+
       - name: Install Dependencies
         run: |
           npm init -y
           npm install axios firebase-admin
+
 
       - name: Create Sync Script
         run: |
@@ -44,7 +49,9 @@ jobs:
               process.env.FIREBASE_SERVICE_ACCOUNT
             );
 
+
           admin.initializeApp({
+
             credential:
               admin.credential.cert(
                 serviceAccount
@@ -52,7 +59,9 @@ jobs:
 
             databaseURL:
               process.env.FIREBASE_DATABASE_URL
+
           });
+
 
           const db =
             admin.database();
@@ -65,6 +74,7 @@ jobs:
           const API_BASE =
             'https://v3.football.api-sports.io';
 
+
           const headers = {
 
             'x-apisports-key':
@@ -72,6 +82,7 @@ jobs:
 
             'Accept':
               'application/json'
+
           };
 
 
@@ -120,19 +131,46 @@ jobs:
                 `API Request: ${url}`
               );
 
+
+              const requestTime =
+                Date.now();
+
+
               const response =
                 await axios.get(
+
                   url,
+
                   {
+
                     headers:
                       headers,
 
                     timeout:
                       20000
+
                   }
+
                 );
 
-              return response.data;
+
+              const responseTime =
+                Date.now();
+
+
+              return {
+
+                data:
+                  response.data,
+
+                requestTime:
+                  requestTime,
+
+                responseTime:
+                  responseTime
+
+              };
+
 
             } catch (error) {
 
@@ -140,9 +178,11 @@ jobs:
                 'API ERROR'
               );
 
+
               console.log(
                 error.message
               );
+
 
               if (
                 error.response &&
@@ -154,7 +194,9 @@ jobs:
                     error.response.data
                   )
                 );
+
               }
+
 
               throw error;
             }
@@ -169,8 +211,11 @@ jobs:
 
             const formatter =
               new Intl.DateTimeFormat(
+
                 'en-CA',
+
                 {
+
                   timeZone:
                     TIMEZONE,
 
@@ -182,8 +227,11 @@ jobs:
 
                   day:
                     '2-digit'
+
                 }
+
               );
+
 
             return formatter.format(
               new Date()
@@ -199,8 +247,11 @@ jobs:
 
             const formatter =
               new Intl.DateTimeFormat(
+
                 'en-US',
+
                 {
+
                   timeZone:
                     TIMEZONE,
 
@@ -209,8 +260,11 @@ jobs:
 
                   hour12:
                     false
+
                 }
+
               );
+
 
             return Number(
               formatter.format(
@@ -232,19 +286,28 @@ jobs:
             const parts =
               dateString.split('-');
 
+
             const date =
               new Date(
+
                 Date.UTC(
+
                   Number(parts[0]),
+
                   Number(parts[1]) - 1,
+
                   Number(parts[2])
+
                 )
+
               );
+
 
             date.setUTCDate(
               date.getUTCDate() +
               days
             );
+
 
             return date
               .toISOString()
@@ -271,18 +334,138 @@ jobs:
                 return false;
               }
 
+
               const leagueId =
                 Number(
                   item.league.id
                 );
 
+
               return TOP_LEAGUES.has(
                 leagueId
               );
 
+
             } catch (error) {
 
               return false;
+
+            }
+          }
+
+
+          // =====================================================
+          // تحديث الدقيقة للمباراة المباشرة
+          //
+          // نستخدم elapsed الذي أعاده API
+          // ثم نضيف الوقت الذي مر أثناء طلب API
+          //
+          // هذا يجعل الرقم الموجود في Firebase
+          // أقرب وقت ممكن للحظة الحفظ.
+          // =====================================================
+
+          function updateLiveElapsed(
+            item,
+            responseTime
+          ) {
+
+            try {
+
+              if (
+                !item ||
+                !item.fixture ||
+                !item.fixture.status
+              ) {
+
+                return;
+              }
+
+
+              const status =
+                item.fixture.status.short;
+
+
+              const liveStatuses = [
+
+                '1H',
+                '2H',
+                'ET',
+                'P',
+                'LIVE'
+
+              ];
+
+
+              if (
+                !liveStatuses.includes(
+                  status
+                )
+              ) {
+
+                return;
+              }
+
+
+              let elapsed =
+                Number(
+                  item.fixture.status.elapsed
+                );
+
+
+              if (
+                !Number.isFinite(
+                  elapsed
+                )
+              ) {
+
+                return;
+              }
+
+
+              if (elapsed < 0) {
+                elapsed = 0;
+              }
+
+
+              // الوقت الذي مر منذ وصول رد API
+              const secondsAfterResponse =
+                Math.floor(
+                  (
+                    Date.now() -
+                    responseTime
+                  ) / 1000
+                );
+
+
+              const additionalMinutes =
+                Math.floor(
+                  secondsAfterResponse / 60
+                );
+
+
+              elapsed =
+                elapsed +
+                additionalMinutes;
+
+
+              item.fixture.status.elapsed =
+                elapsed;
+
+
+              console.log(
+                `Live elapsed updated: ${elapsed}'`
+              );
+
+
+            } catch (error) {
+
+              console.log(
+                'ELAPSED UPDATE ERROR'
+              );
+
+              console.log(
+                error.message
+              );
             }
           }
 
@@ -292,7 +475,8 @@ jobs:
           // =====================================================
 
           async function saveFixture(
-            item
+            item,
+            responseTime
           ) {
 
             if (
@@ -338,6 +522,16 @@ jobs:
 
 
             // =================================================
+            // تحديث الدقيقة للمباراة المباشرة
+            // =================================================
+
+            updateLiveElapsed(
+              item,
+              responseTime
+            );
+
+
+            // =================================================
             // حفظ داخل matches فقط
             // =================================================
 
@@ -361,12 +555,13 @@ jobs:
           // =====================================================
 
           async function saveFixtures(
-            data
+            result
           ) {
 
             if (
-              !data ||
-              !data.response
+              !result ||
+              !result.data ||
+              !result.data.response
             ) {
 
               console.log(
@@ -378,20 +573,22 @@ jobs:
 
 
             console.log(
-              `Received ${data.response.length} fixtures`
+              `Received ${result.data.response.length} fixtures`
             );
 
 
             for (
               const item
-              of data.response
+              of result.data.response
             ) {
 
               try {
 
                 await saveFixture(
-                  item
+                  item,
+                  result.responseTime
                 );
+
 
               } catch (error) {
 
@@ -399,9 +596,11 @@ jobs:
                   'SAVE ERROR'
                 );
 
+
                 console.log(
                   error.message
                 );
+
               }
             }
           }
@@ -444,9 +643,11 @@ jobs:
                     `matches/${child.key}`
                   ] = null;
 
+
                   console.log(
                     `Removed invalid: ${child.key}`
                   );
+
                 }
 
               }
@@ -463,11 +664,13 @@ jobs:
                   updates
                 );
 
+
             } else {
 
               console.log(
                 'No invalid matches found'
               );
+
             }
           }
 
@@ -484,9 +687,11 @@ jobs:
                 '======================================'
               );
 
+
               console.log(
                 'FOOTBALL SYNC START'
               );
+
 
               console.log(
                 '======================================'
@@ -523,13 +728,16 @@ jobs:
                 `Yesterday: ${yesterday}`
               );
 
+
               console.log(
                 `Today: ${today}`
               );
 
+
               console.log(
                 `Tomorrow: ${tomorrow}`
               );
+
 
               console.log(
                 `Baghdad Hour: ${hour}`
@@ -537,38 +745,26 @@ jobs:
 
 
               // =================================================
-              // الطلب الرئيسي
-              //
-              // هذا يحدث:
-              // - المباريات القادمة
-              // - المباريات المباشرة
-              // - النتائج
-              // - الحالات
-              //
-              // لأن API-Football يعيد حالة المباراة الحالية.
+              // مباريات اليوم
               // =================================================
 
-              const todayData =
+              const todayResult =
                 await fetchAPI(
+
                   `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
+
                 );
 
 
               await saveFixtures(
-                todayData
+                todayResult
               );
 
 
               // =================================================
               // مرة واحدة يوميًا
               //
-              // نجلب:
-              // - الأمس
-              // - الغد
-              //
-              // لتقليل استهلاك API.
-              //
-              // الساعة 00:00 - 00:59 بتوقيت بغداد.
+              // الأمس + الغد
               // =================================================
 
               if (
@@ -584,14 +780,16 @@ jobs:
                 // الأمس
                 // =============================================
 
-                const yesterdayData =
+                const yesterdayResult =
                   await fetchAPI(
+
                     `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
+
                   );
 
 
                 await saveFixtures(
-                  yesterdayData
+                  yesterdayResult
                 );
 
 
@@ -599,14 +797,16 @@ jobs:
                 // الغد
                 // =============================================
 
-                const tomorrowData =
+                const tomorrowResult =
                   await fetchAPI(
+
                     `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
+
                   );
 
 
                 await saveFixtures(
-                  tomorrowData
+                  tomorrowResult
                 );
 
 
@@ -627,9 +827,11 @@ jobs:
                 '======================================'
               );
 
+
               console.log(
                 'SYNC COMPLETED'
               );
+
 
               console.log(
                 '======================================'
@@ -640,19 +842,23 @@ jobs:
                 0
               );
 
+
             } catch (error) {
 
               console.error(
                 '======================================'
               );
 
+
               console.error(
                 'SYNC ERROR'
               );
 
+
               console.error(
                 error.message
               );
+
 
               console.error(
                 '======================================'
