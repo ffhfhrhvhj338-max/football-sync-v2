@@ -15,9 +15,17 @@ jobs:
 
     steps:
 
+      # =====================================================
+      # Checkout
+      # =====================================================
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+
+      # =====================================================
+      # Node.js
+      # =====================================================
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,11 +33,19 @@ jobs:
           node-version: 20
 
 
+      # =====================================================
+      # Dependencies
+      # =====================================================
+
       - name: Install Dependencies
         run: |
           npm init -y
           npm install axios firebase-admin
 
+
+      # =====================================================
+      # Create Sync Script
+      # =====================================================
 
       - name: Create Sync Script
         run: |
@@ -87,7 +103,7 @@ jobs:
 
 
           // =====================================================
-          // إعدادات
+          // TIMEZONE
           // =====================================================
 
           const TIMEZONE =
@@ -120,16 +136,33 @@ jobs:
 
 
           // =====================================================
-          // طلب API
+          // حالات المباريات المباشرة
+          // =====================================================
+
+          const LIVE_STATUSES = [
+
+            '1H',
+            'HT',
+            '2H',
+            'ET',
+            'P',
+            'LIVE'
+
+          ];
+
+
+          // =====================================================
+          // API REQUEST
           // =====================================================
 
           async function fetchAPI(url) {
 
             try {
 
-              console.log(
-                `API Request: ${url}`
-              );
+              console.log('');
+              console.log('--------------------------------------');
+              console.log(`API REQUEST: ${url}`);
+              console.log('--------------------------------------');
 
 
               const requestTime =
@@ -174,14 +207,9 @@ jobs:
 
             } catch (error) {
 
-              console.log(
-                'API ERROR'
-              );
-
-
-              console.log(
-                error.message
-              );
+              console.log('');
+              console.log('API ERROR');
+              console.log(error.message);
 
 
               if (
@@ -328,6 +356,7 @@ jobs:
                   );
 
                 break;
+
               }
             }
 
@@ -337,7 +366,7 @@ jobs:
 
 
           // =====================================================
-          // إضافة أو إنقاص يوم
+          // إضافة أيام
           // =====================================================
 
           function addDays(
@@ -378,6 +407,67 @@ jobs:
 
 
           // =====================================================
+          // استخراج تاريخ المباراة بتوقيت بغداد
+          // =====================================================
+
+          function getMatchBaghdadDate(
+            timestamp
+          ) {
+
+            try {
+
+              const ts =
+                Number(timestamp);
+
+
+              if (
+                !Number.isFinite(ts) ||
+                ts <= 0
+              ) {
+
+                return '';
+
+              }
+
+
+              const formatter =
+                new Intl.DateTimeFormat(
+
+                  'en-CA',
+
+                  {
+
+                    timeZone:
+                      TIMEZONE,
+
+                    year:
+                      'numeric',
+
+                    month:
+                      '2-digit',
+
+                    day:
+                      '2-digit'
+
+                  }
+
+                );
+
+
+              return formatter.format(
+                new Date(ts * 1000)
+              );
+
+
+            } catch (error) {
+
+              return '';
+
+            }
+          }
+
+
+          // =====================================================
           // فحص الدوري
           // =====================================================
 
@@ -394,6 +484,7 @@ jobs:
               ) {
 
                 return false;
+
               }
 
 
@@ -417,7 +508,188 @@ jobs:
 
 
           // =====================================================
-          // تحديث الدقيقة للمباراة المباشرة
+          // تصحيح حالة المباراة
+          // =====================================================
+
+          function normalizeStatus(
+            item
+          ) {
+
+            try {
+
+              if (
+                !item ||
+                !item.fixture
+              ) {
+
+                return;
+
+              }
+
+
+              if (
+                !item.fixture.status
+              ) {
+
+                item.fixture.status = {};
+
+              }
+
+
+              let status =
+                item.fixture.status.short
+                  ? String(
+                      item.fixture.status.short
+                    ).toUpperCase()
+                  : '';
+
+
+              let elapsed =
+                Number(
+                  item.fixture.status.elapsed
+                );
+
+
+              if (
+                !Number.isFinite(elapsed)
+              ) {
+
+                elapsed = 0;
+
+              }
+
+
+              const fixtureTimestamp =
+                Number(
+                  item.fixture.timestamp
+                );
+
+
+              const now =
+                Math.floor(
+                  Date.now() / 1000
+                );
+
+
+              // =================================================
+              // إذا كانت الحالة LIVE
+              // =================================================
+
+              if (
+                LIVE_STATUSES.includes(
+                  status
+                ) &&
+                fixtureTimestamp > 0
+              ) {
+
+
+                const minutesSinceStart =
+                  Math.floor(
+
+                    (
+                      now -
+                      fixtureTimestamp
+
+                    ) / 60
+
+                  );
+
+
+                console.log(
+
+                  `STATUS CHECK | ID=${item.fixture.id}` +
+                  ` | API=${status}` +
+                  ` | ELAPSED=${elapsed}` +
+                  ` | SINCE_START=${minutesSinceStart}`
+
+                );
+
+
+                // ------------------------------------------------
+                // حماية من مباراة LIVE قديمة
+                // ------------------------------------------------
+
+                if (
+
+                  minutesSinceStart >= 125 &&
+
+                  elapsed >= 90
+
+                ) {
+
+                  console.log(
+                    `STALE LIVE -> FT | ${item.fixture.id}`
+                  );
+
+
+                  status =
+                    'FT';
+
+
+                  item.fixture.status.short =
+                    'FT';
+
+
+                  item.fixture.status.long =
+                    'Match Finished';
+
+
+                  if (
+                    elapsed < 90
+                  ) {
+
+                    elapsed = 90;
+
+                  }
+
+
+                  item.fixture.status.elapsed =
+                    elapsed;
+
+                }
+              }
+
+
+              // =================================================
+              // تحديث الحالة
+              // =================================================
+
+              item.fixture.status.short =
+                status;
+
+
+              // =================================================
+              // حالات نهائية
+              // =================================================
+
+              if (
+                status === 'FT' ||
+                status === 'AET' ||
+                status === 'PEN'
+              ) {
+
+                item.fixture.status.short =
+                  status;
+
+              }
+
+
+            } catch (error) {
+
+              console.log(
+                'STATUS NORMALIZATION ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
+            }
+          }
+
+
+          // =====================================================
+          // تحديث دقيقة المباراة المباشرة
           // =====================================================
 
           function updateLiveElapsed(
@@ -434,31 +706,24 @@ jobs:
               ) {
 
                 return;
+
               }
 
 
               const status =
-                item.fixture.status.short;
-
-
-              const liveStatuses = [
-
-                '1H',
-                '2H',
-                'ET',
-                'P',
-                'LIVE'
-
-              ];
+                String(
+                  item.fixture.status.short || ''
+                ).toUpperCase();
 
 
               if (
-                !liveStatuses.includes(
+                !LIVE_STATUSES.includes(
                   status
                 )
               ) {
 
                 return;
+
               }
 
 
@@ -469,16 +734,17 @@ jobs:
 
 
               if (
-                !Number.isFinite(
-                  elapsed
-                )
+                !Number.isFinite(elapsed)
               ) {
 
                 return;
+
               }
 
 
-              if (elapsed < 0) {
+              if (
+                elapsed < 0
+              ) {
 
                 elapsed = 0;
 
@@ -510,13 +776,21 @@ jobs:
                 additionalMinutes;
 
 
+              // ------------------------------------------------
+              // الحد الأقصى الطبيعي
+              // ------------------------------------------------
+
+              if (
+                elapsed > 130
+              ) {
+
+                elapsed = 130;
+
+              }
+
+
               item.fixture.status.elapsed =
                 elapsed;
-
-
-              console.log(
-                `Live elapsed updated: ${elapsed}'`
-              );
 
 
             } catch (error) {
@@ -549,20 +823,20 @@ jobs:
             ) {
 
               return;
+
             }
 
 
             // =================================================
-            // فلترة الدوري
+            // الدوري
             // =================================================
 
             if (
-              !allowedLeague(
-                item
-              )
+              !allowedLeague(item)
             ) {
 
               return;
+
             }
 
 
@@ -572,20 +846,17 @@ jobs:
               );
 
 
-            const status =
-              item.fixture.status &&
-              item.fixture.status.short
-                ? item.fixture.status.short
-                : '';
+            // =================================================
+            // تصحيح الحالة أولاً
+            // =================================================
 
-
-            console.log(
-              `Saving ${fixtureId} | ${status}`
+            normalizeStatus(
+              item
             );
 
 
             // =================================================
-            // تحديث الدقيقة للمباراة المباشرة
+            // تحديث الدقيقة LIVE
             // =================================================
 
             updateLiveElapsed(
@@ -594,8 +865,38 @@ jobs:
             );
 
 
+            const status =
+              item.fixture.status &&
+              item.fixture.status.short
+                ? String(
+                    item.fixture.status.short
+                  ).toUpperCase()
+                : '';
+
+
+            const elapsed =
+              item.fixture.status &&
+              item.fixture.status.elapsed != null
+                ? item.fixture.status.elapsed
+                : '';
+
+
+            const matchDate =
+              getMatchBaghdadDate(
+                item.fixture.timestamp
+              );
+
+
+            console.log(
+              `SAVE | ${fixtureId}` +
+              ` | ${matchDate}` +
+              ` | ${status}` +
+              ` | ${elapsed}'`
+            );
+
+
             // =================================================
-            // حفظ داخل matches فقط
+            // الحفظ
             // =================================================
 
             await db
@@ -624,7 +925,9 @@ jobs:
             if (
               !result ||
               !result.data ||
-              !result.data.response
+              !Array.isArray(
+                result.data.response
+              )
             ) {
 
               console.log(
@@ -632,6 +935,7 @@ jobs:
               );
 
               return;
+
             }
 
 
@@ -663,77 +967,180 @@ jobs:
                 console.log(
                   error.message
                 );
-
               }
             }
           }
 
 
           // =====================================================
-          // تنظيف العقد التالفة فقط
+          // تنظيف المباريات خارج:
+          //
+          // أمس
+          // اليوم
+          // غدًا
           // =====================================================
 
-          async function cleanupInvalidMatches() {
+          async function cleanupOldMatches() {
 
-            console.log(
-              'Checking Firebase matches...'
-            );
+            try {
 
-
-            const snapshot =
-              await db
-                .ref('matches')
-                .once('value');
+              console.log('');
+              console.log(
+                'CLEANUP OLD MATCHES START'
+              );
 
 
-            const updates = {};
+              const today =
+                getBaghdadDate();
 
 
-            snapshot.forEach(
-              child => {
-
-                const item =
-                  child.val();
-
-
-                if (
-                  !item ||
-                  !item.fixture ||
-                  !item.fixture.id
-                ) {
-
-                  updates[
-                    `matches/${child.key}`
-                  ] = null;
-
-
-                  console.log(
-                    `Removed invalid: ${child.key}`
-                  );
-
-                }
-
-              }
-            );
-
-
-            if (
-              Object.keys(updates).length > 0
-            ) {
-
-              await db
-                .ref()
-                .update(
-                  updates
+              const yesterday =
+                addDays(
+                  today,
+                  -1
                 );
 
 
-            } else {
+              const tomorrow =
+                addDays(
+                  today,
+                  1
+                );
 
-              console.log(
-                'No invalid matches found'
+
+              const allowedDates =
+                new Set([
+
+                  yesterday,
+                  today,
+                  tomorrow
+
+                ]);
+
+
+              const snapshot =
+                await db
+                  .ref('matches')
+                  .once('value');
+
+
+              const updates = {};
+
+
+              snapshot.forEach(
+                child => {
+
+                  try {
+
+                    const item =
+                      child.val();
+
+
+                    // -----------------------------------------
+                    // بيانات تالفة
+                    // -----------------------------------------
+
+                    if (
+                      !item ||
+                      !item.fixture ||
+                      !item.fixture.id
+                    ) {
+
+                      updates[
+                        `matches/${child.key}`
+                      ] = null;
+
+
+                      console.log(
+                        `REMOVE INVALID: ${child.key}`
+                      );
+
+
+                      return;
+                    }
+
+
+                    const matchDate =
+                      getMatchBaghdadDate(
+                        item.fixture.timestamp
+                      );
+
+
+                    // -----------------------------------------
+                    // إذا المباراة خارج الأيام الثلاثة
+                    // -----------------------------------------
+
+                    if (
+                      !allowedDates.has(
+                        matchDate
+                      )
+                    ) {
+
+                      updates[
+                        `matches/${child.key}`
+                      ] = null;
+
+
+                      console.log(
+                        `REMOVE OLD: ${child.key} | ${matchDate}`
+                      );
+
+                    }
+
+
+                  } catch (error) {
+
+                    console.log(
+                      'CLEANUP ITEM ERROR'
+                    );
+
+                  }
+                }
               );
 
+
+              if (
+                Object.keys(
+                  updates
+                ).length > 0
+              ) {
+
+                await db
+                  .ref()
+                  .update(
+                    updates
+                  );
+
+
+                console.log(
+                  `Removed ${Object.keys(updates).length} old matches`
+                );
+
+
+              } else {
+
+                console.log(
+                  'No old matches to remove'
+                );
+
+              }
+
+
+              console.log(
+                'CLEANUP OLD MATCHES COMPLETED'
+              );
+
+
+            } catch (error) {
+
+              console.log(
+                'CLEANUP ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
             }
           }
 
@@ -746,6 +1153,7 @@ jobs:
 
             try {
 
+              console.log('');
               console.log(
                 '======================================'
               );
@@ -762,7 +1170,7 @@ jobs:
 
 
               // =================================================
-              // الوقت في بغداد
+              // الوقت
               // =================================================
 
               const today =
@@ -792,12 +1200,12 @@ jobs:
 
 
               console.log(
-                `Yesterday: ${yesterday}`
+                `Baghdad Date: ${today}`
               );
 
 
               console.log(
-                `Today: ${today}`
+                `Yesterday: ${yesterday}`
               );
 
 
@@ -807,21 +1215,18 @@ jobs:
 
 
               console.log(
-                `Baghdad Hour: ${hour}`
-              );
-
-
-              console.log(
-                `Baghdad Minute: ${minute}`
+                `Baghdad Time: ${hour}:${String(minute).padStart(2, '0')}`
               );
 
 
               // =================================================
-              // كل 5 دقائق
+              // 1
+              // LIVE
               //
-              // جلب المباريات المباشرة فقط
+              // كل 5 دقائق
               // =================================================
 
+              console.log('');
               console.log(
                 'LIVE MATCHES UPDATE START'
               );
@@ -846,18 +1251,17 @@ jobs:
 
 
               // =================================================
+              // 2
+              // مباريات اليوم
+              //
               // كل 15 دقيقة
-              //
-              // جلب مباريات اليوم كاملة
-              //
-              // هذا يحدث عندما تكون الدقيقة:
-              // 00 أو 15 أو 30 أو 45
               // =================================================
 
               if (
                 minute % 15 === 0
               ) {
 
+                console.log('');
                 console.log(
                   'TODAY UPDATE START'
                 );
@@ -883,19 +1287,19 @@ jobs:
 
 
               // =================================================
+              // 3
+              // الأمس والغد
+              //
               // مرة واحدة يوميًا
-              //
-              // الساعة 00 بتوقيت بغداد
-              //
-              // جلب:
-              // الأمس
-              // الغد
+              // الساعة 00:00 بغداد
               // =================================================
 
               if (
-                hour === 0
+                hour === 0 &&
+                minute === 0
               ) {
 
+                console.log('');
                 console.log(
                   'DAILY UPDATE START'
                 );
@@ -942,19 +1346,25 @@ jobs:
 
 
               // =================================================
-              // تنظيف البيانات التالفة
+              // 4
+              // تنظيف البيانات القديمة
               // =================================================
 
-              await cleanupInvalidMatches();
+              await cleanupOldMatches();
 
 
+              // =================================================
+              // FINISH
+              // =================================================
+
+              console.log('');
               console.log(
                 '======================================'
               );
 
 
               console.log(
-                'SYNC COMPLETED'
+                'SYNC COMPLETED SUCCESSFULLY'
               );
 
 
@@ -970,6 +1380,7 @@ jobs:
 
             } catch (error) {
 
+              console.error('');
               console.error(
                 '======================================'
               );
@@ -1005,6 +1416,10 @@ jobs:
 
           EOF
 
+
+      # =====================================================
+      # Run
+      # =====================================================
 
       - name: Run Sync
         env:
