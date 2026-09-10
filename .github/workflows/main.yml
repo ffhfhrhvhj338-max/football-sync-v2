@@ -124,7 +124,7 @@ jobs:
               9,
               11,
               15,
-              39,
+          39,
               61,
               78,
               135,
@@ -607,14 +607,16 @@ jobs:
 
                 // ------------------------------------------------
                 // حماية من مباراة LIVE قديمة
+                //
+                // أي مباراة بدأت قبل 130 دقيقة
+                // = انتهت بالتأكيد
+                //
+                // لا نعتمد على elapsed لأن الـ API
+                // قد يرسل null
                 // ------------------------------------------------
 
                 if (
-
-                  minutesSinceStart >= 125 &&
-
-                  elapsed >= 90
-
+                  minutesSinceStart >= 130
                 ) {
 
                   console.log(
@@ -634,17 +636,8 @@ jobs:
                     'Match Finished';
 
 
-                  if (
-                    elapsed < 90
-                  ) {
-
-                    elapsed = 90;
-
-                  }
-
-
                   item.fixture.status.elapsed =
-                    elapsed;
+                    90;
 
                 }
               }
@@ -973,6 +966,214 @@ jobs:
 
 
           // =====================================================
+          // فحص: هل نفذنا تحديث اليوم؟
+          //
+          // يعمل مرة واحدة كل 15 دقيقة
+          // بغض النظر عن تأخير GitHub Actions
+          // =====================================================
+
+          async function shouldRunToday() {
+
+            try {
+
+              const now =
+                new Date();
+
+
+              const baghdadNow =
+                new Date(
+
+                  now.toLocaleString(
+
+                    'en-US',
+
+                    {
+                      timeZone:
+                        TIMEZONE
+                    }
+
+                  )
+
+                );
+
+
+              const bucket =
+                Math.floor(
+
+                  (
+                    baghdadNow.getHours() * 60 +
+                    baghdadNow.getMinutes()
+
+                  ) / 15
+
+                );
+
+
+              const today =
+                getBaghdadDate();
+
+
+              const key =
+                `${today}_${bucket}`;
+
+
+              const snapshot =
+                await db
+                  .ref(
+                    'meta/last_today_sync'
+                  )
+                  .get();
+
+
+              if (
+                snapshot.val() === key
+              ) {
+
+                console.log(
+                  `TODAY SYNC ALREADY DONE | ${key}`
+                );
+
+
+                return false;
+
+              }
+
+
+              await db
+                .ref(
+                  'meta/last_today_sync'
+                )
+                .set(
+                  key
+                );
+
+
+              console.log(
+                `TODAY SYNC ALLOWED | ${key}`
+              );
+
+
+              return true;
+
+
+            } catch (error) {
+
+              console.log(
+                'SHOULD RUN TODAY ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
+
+
+              // في حالة الخطأ نسمح بالتشغيل
+              return true;
+            }
+          }
+
+
+          // =====================================================
+          // فحص: هل نفذنا المهمة اليومية؟
+          //
+          // يعمل مرة واحدة يومياً
+          // بغض النظر عن تأخير GitHub Actions
+          // =====================================================
+
+          async function shouldRunDaily() {
+
+            try {
+
+              const today =
+                getBaghdadDate();
+
+
+              const snapshot =
+                await db
+                  .ref(
+                    'meta/last_daily_sync'
+                  )
+                  .get();
+
+
+              if (
+                snapshot.val() === today
+              ) {
+
+                console.log(
+                  `DAILY SYNC ALREADY DONE | ${today}`
+                );
+
+
+                return false;
+
+              }
+
+
+              console.log(
+                `DAILY SYNC ALLOWED | ${today}`
+              );
+
+
+              return true;
+
+
+            } catch (error) {
+
+              console.log(
+                'SHOULD RUN DAILY ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
+
+
+              // في حالة الخطأ نسمح بالتشغيل
+              return true;
+            }
+          }
+
+
+          async function markDailyDone() {
+
+            try {
+
+              const today =
+                getBaghdadDate();
+
+
+              await db
+                .ref(
+                  'meta/last_daily_sync'
+                )
+                .set(
+                  today
+                );
+
+
+              console.log(
+                `DAILY SYNC MARKED | ${today}`
+              );
+
+
+            } catch (error) {
+
+              console.log(
+                'MARK DAILY ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
+            }
+          }
+
+
+          // =====================================================
           // تنظيف المباريات خارج:
           //
           // أمس
@@ -1254,11 +1455,13 @@ jobs:
               // 2
               // مباريات اليوم
               //
-              // كل 15 دقيقة
+              // مرة واحدة كل 15 دقيقة
+              // عبر نظام Flags في Firebase
+              // (موثوق حتى مع تأخير GitHub Actions)
               // =================================================
 
               if (
-                minute % 15 === 0
+                await shouldRunToday()
               ) {
 
                 console.log('');
@@ -1291,12 +1494,12 @@ jobs:
               // الأمس والغد
               //
               // مرة واحدة يوميًا
-              // الساعة 00:00 بغداد
+              // عبر نظام Flags في Firebase
+              // (بدلاً من hour === 0 && minute === 0)
               // =================================================
 
               if (
-                hour === 0 &&
-                minute === 0
+                await shouldRunDaily()
               ) {
 
                 console.log('');
@@ -1337,6 +1540,9 @@ jobs:
                 await saveFixtures(
                   tomorrowResult
                 );
+
+
+                await markDailyDone();
 
 
                 console.log(
@@ -1435,3 +1641,4 @@ jobs:
 
         run: |
           node sync.js
+
