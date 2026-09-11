@@ -1,57 +1,1416 @@
-          async function sync() {
+name: Football API Sync
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "*/5 * * * *"
+
+
+jobs:
+
+  sync:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # =====================================================
+      # Checkout
+      # =====================================================
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+
+      # =====================================================
+      # Node.js
+      # =====================================================
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+
+      # =====================================================
+      # Dependencies
+      # =====================================================
+
+      - name: Install Dependencies
+        run: |
+          npm init -y
+          npm install axios firebase-admin
+
+
+      # =====================================================
+      # Create Sync Script
+      # =====================================================
+
+      - name: Create Sync Script
+        run: |
+
+          cat << 'EOF' > sync.js
+
+          const axios = require('axios');
+          const admin = require('firebase-admin');
+
+
+          // =====================================================
+          // FIREBASE
+          // =====================================================
+
+          const serviceAccount =
+            JSON.parse(
+              process.env.FIREBASE_SERVICE_ACCOUNT
+            );
+
+
+          admin.initializeApp({
+
+            credential:
+              admin.credential.cert(
+                serviceAccount
+              ),
+
+            databaseURL:
+              process.env.FIREBASE_DATABASE_URL
+
+          });
+
+
+          const db =
+            admin.database();
+
+
+          // =====================================================
+          // API FOOTBALL
+          // =====================================================
+
+          const API_BASE =
+            'https://v3.football.api-sports.io';
+
+
+          const headers = {
+
+            'x-apisports-key':
+              process.env.API_FOOTBALL_KEY,
+
+            'Accept':
+              'application/json'
+
+          };
+
+
+          // =====================================================
+          // TIMEZONE
+          // =====================================================
+
+          const TIMEZONE =
+            'Asia/Baghdad';
+
+
+          // =====================================================
+          // الدوريات المطلوبة
+          // =====================================================
+
+          const TOP_LEAGUES =
+            new Set([
+
+              1,
+              2,
+              3,
+              4,
+              9,
+              11,
+              15,
+              39,
+              61,
+              78,
+              135,
+              140,
+              307,
+              848
+
+            ]);
+
+
+          // =====================================================
+          // حالات المباريات المباشرة
+          // =====================================================
+
+          const LIVE_STATUSES = [
+
+            '1H',
+            'HT',
+            '2H',
+            'ET',
+            'P',
+            'LIVE'
+
+          ];
+
+
+          // =====================================================
+          // API REQUEST
+          // =====================================================
+
+          async function fetchAPI(url) {
+
             try {
-              console.log('');
-              console.log('======================================');
-              console.log('FOOTBALL SYNC START');
-              console.log('======================================');
-
-              const today = getBaghdadDate();
-              const yesterday = addDays(today, -1);
-              const tomorrow = addDays(today, 1);
-
-              console.log(`Baghdad Date: ${today}`);
-              console.log(`Yesterday: ${yesterday}`);
-              console.log(`Tomorrow: ${tomorrow}`);
-
-              // 1. تحديث المباريات المباشرة
-              console.log('');
-              console.log('LIVE MATCHES UPDATE START');
-              const liveResult = await fetchAPI(`${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`);
-              await saveFixtures(liveResult);
-
-              // 2. تحديث مباريات الأمس
-              console.log('');
-              console.log('YESTERDAY UPDATE START');
-              const yesterdayResult = await fetchAPI(`${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`);
-              await saveFixtures(yesterdayResult);
-
-              // 3. تحديث مباريات اليوم
-              console.log('');
-              console.log('TODAY UPDATE START');
-              const todayResult = await fetchAPI(`${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`);
-              await saveFixtures(todayResult);
-
-              // 4. تحديث مباريات الغد
-              console.log('');
-              console.log('TOMORROW UPDATE START');
-              const tomorrowResult = await fetchAPI(`${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`);
-              await saveFixtures(tomorrowResult);
-
-              // 5. تنظيف البيانات القديمة
-              await cleanupOldMatches();
 
               console.log('');
-              console.log('======================================');
-              console.log('SYNC COMPLETED SUCCESSFULLY');
-              console.log('======================================');
-              process.exit(0);
+              console.log('--------------------------------------');
+              console.log(`API REQUEST: ${url}`);
+              console.log('--------------------------------------');
+
+
+              const requestTime =
+                Date.now();
+
+
+              const response =
+                await axios.get(
+
+                  url,
+
+                  {
+
+                    headers:
+                      headers,
+
+                    timeout:
+                      20000
+
+                  }
+
+                );
+
+
+              const responseTime =
+                Date.now();
+
+
+              return {
+
+                data:
+                  response.data,
+
+                requestTime:
+                  requestTime,
+
+                responseTime:
+                  responseTime
+
+              };
+
 
             } catch (error) {
-              console.error('');
-              console.error('======================================');
-              console.error('SYNC ERROR');
-              console.error(error.message);
-              console.error('======================================');
-              process.exit(1);
+
+              console.log('');
+              console.log('API ERROR');
+              console.log(error.message);
+
+
+              if (
+                error.response &&
+                error.response.data
+              ) {
+
+                console.log(
+                  JSON.stringify(
+                    error.response.data
+                  )
+                );
+
+              }
+
+
+              throw error;
             }
           }
+
+
+          // =====================================================
+          // تاريخ بغداد الحالي
+          // =====================================================
+
+          function getBaghdadDate() {
+
+            const formatter =
+              new Intl.DateTimeFormat(
+
+                'en-CA',
+
+                {
+
+                  timeZone:
+                    TIMEZONE,
+
+                  year:
+                    'numeric',
+
+                  month:
+                    '2-digit',
+
+                  day:
+                    '2-digit'
+
+                }
+
+              );
+
+
+            return formatter.format(
+              new Date()
+            );
+          }
+
+
+          // =====================================================
+          // ساعة بغداد
+          // =====================================================
+
+          function getBaghdadHour() {
+
+            const formatter =
+              new Intl.DateTimeFormat(
+
+                'en-US',
+
+                {
+
+                  timeZone:
+                    TIMEZONE,
+
+                  hour:
+                    '2-digit',
+
+                  hour12:
+                    false
+
+                }
+
+              );
+
+
+            return Number(
+              formatter.format(
+                new Date()
+              )
+            );
+          }
+
+
+          // =====================================================
+          // دقيقة بغداد
+          // =====================================================
+
+          function getBaghdadMinute() {
+
+            const formatter =
+              new Intl.DateTimeFormat(
+
+                'en-US',
+
+                {
+
+                  timeZone:
+                    TIMEZONE,
+
+                  minute:
+                    '2-digit',
+
+                  hour:
+                    '2-digit',
+
+                  hour12:
+                    false
+
+                }
+
+              );
+
+
+            const parts =
+              formatter.formatToParts(
+                new Date()
+              );
+
+
+            let minute = 0;
+
+
+            for (
+              const part
+              of parts
+            ) {
+
+              if (
+                part.type === 'minute'
+              ) {
+
+                minute =
+                  Number(
+                    part.value
+                  );
+
+                break;
+
+              }
+            }
+
+
+            return minute;
+          }
+
+
+          // =====================================================
+          // إضافة أيام
+          // =====================================================
+
+          function addDays(
+            dateString,
+            days
+          ) {
+
+            const parts =
+              dateString.split('-');
+
+
+            const date =
+              new Date(
+
+                Date.UTC(
+
+                  Number(parts[0]),
+
+                  Number(parts[1]) - 1,
+
+                  Number(parts[2])
+
+                )
+
+              );
+
+
+            date.setUTCDate(
+              date.getUTCDate() +
+              days
+            );
+
+
+            return date
+              .toISOString()
+              .substring(0, 10);
+          }
+
+
+          // =====================================================
+          // استخراج تاريخ المباراة بتوقيت بغداد
+          // =====================================================
+
+          function getMatchBaghdadDate(
+            timestamp
+          ) {
+
+            try {
+
+              const ts =
+                Number(timestamp);
+
+
+              if (
+                !Number.isFinite(ts) ||
+                ts <= 0
+              ) {
+
+                return '';
+
+              }
+
+
+              const formatter =
+                new Intl.DateTimeFormat(
+
+                  'en-CA',
+
+                  {
+
+                    timeZone:
+                      TIMEZONE,
+
+                    year:
+                      'numeric',
+
+                    month:
+                      '2-digit',
+
+                    day:
+                      '2-digit'
+
+                  }
+
+                );
+
+
+              return formatter.format(
+                new Date(ts * 1000)
+              );
+
+
+            } catch (error) {
+
+              return '';
+
+            }
+          }
+
+
+          // =====================================================
+          // فحص الدوري
+          // =====================================================
+
+          function allowedLeague(
+            item
+          ) {
+
+            try {
+
+              if (
+                !item ||
+                !item.league ||
+                !item.league.id
+              ) {
+
+                return false;
+
+              }
+
+
+              const leagueId =
+                Number(
+                  item.league.id
+                );
+
+
+              return TOP_LEAGUES.has(
+                leagueId
+              );
+
+
+            } catch (error) {
+
+              return false;
+
+            }
+          }
+
+
+          // =====================================================
+          // تصحيح حالة المباراة
+          // =====================================================
+
+          function normalizeStatus(
+            item
+          ) {
+
+            try {
+
+              if (
+                !item ||
+                !item.fixture
+              ) {
+
+                return;
+
+              }
+
+
+              if (
+                !item.fixture.status
+              ) {
+
+                item.fixture.status = {};
+
+              }
+
+
+              let status =
+                item.fixture.status.short
+                  ? String(
+                      item.fixture.status.short
+                    ).toUpperCase()
+                  : '';
+
+
+              let elapsed =
+                Number(
+                  item.fixture.status.elapsed
+                );
+
+
+              if (
+                !Number.isFinite(elapsed)
+              ) {
+
+                elapsed = 0;
+
+              }
+
+
+              const fixtureTimestamp =
+                Number(
+                  item.fixture.timestamp
+                );
+
+
+              const now =
+                Math.floor(
+                  Date.now() / 1000
+                );
+
+
+              // =================================================
+              // إذا كانت الحالة LIVE
+              // =================================================
+
+              if (
+                LIVE_STATUSES.includes(
+                  status
+                ) &&
+                fixtureTimestamp > 0
+              ) {
+
+
+                const minutesSinceStart =
+                  Math.floor(
+
+                    (
+                      now -
+                      fixtureTimestamp
+
+                    ) / 60
+
+                  );
+
+
+                console.log(
+
+                  `STATUS CHECK | ID=${item.fixture.id}` +
+                  ` | API=${status}` +
+                  ` | ELAPSED=${elapsed}` +
+                  ` | SINCE_START=${minutesSinceStart}`
+
+                );
+
+
+                // ------------------------------------------------
+                // حماية من مباراة LIVE قديمة
+                //
+                // أي مباراة بدأت قبل 130 دقيقة
+                // = انتهت بالتأكيد
+                //
+                // لا نعتمد على elapsed لأن الـ API
+                // قد يرسل null
+                // ------------------------------------------------
+
+                if (
+                  minutesSinceStart >= 130
+                ) {
+
+                  console.log(
+                    `STALE LIVE -> FT | ${item.fixture.id}`
+                  );
+
+
+                  status =
+                    'FT';
+
+
+                  item.fixture.status.short =
+                    'FT';
+
+
+                  item.fixture.status.long =
+                    'Match Finished';
+
+
+                  item.fixture.status.elapsed =
+                    90;
+
+                }
+              }
+
+
+              // =================================================
+              // تحديث الحالة
+              // =================================================
+
+              item.fixture.status.short =
+                status;
+
+
+              // =================================================
+              // حالات نهائية
+              // =================================================
+
+              if (
+                status === 'FT' ||
+                status === 'AET' ||
+                status === 'PEN'
+              ) {
+
+                item.fixture.status.short =
+                  status;
+
+              }
+
+
+            } catch (error) {
+
+              console.log(
+                'STATUS NORMALIZATION ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
+            }
+          }
+
+
+          // =====================================================
+          // تحديث دقيقة المباراة المباشرة
+          // =====================================================
+
+          function updateLiveElapsed(
+            item,
+            responseTime
+          ) {
+
+            try {
+
+              if (
+                !item ||
+                !item.fixture ||
+                !item.fixture.status
+              ) {
+
+                return;
+
+              }
+
+
+              const status =
+                String(
+                  item.fixture.status.short || ''
+                ).toUpperCase();
+
+
+              if (
+                !LIVE_STATUSES.includes(
+                  status
+                )
+              ) {
+
+                return;
+
+              }
+
+
+              let elapsed =
+                Number(
+                  item.fixture.status.elapsed
+                );
+
+
+              if (
+                !Number.isFinite(elapsed)
+              ) {
+
+                return;
+
+              }
+
+
+              if (
+                elapsed < 0
+              ) {
+
+                elapsed = 0;
+
+              }
+
+
+              const secondsAfterResponse =
+                Math.floor(
+
+                  (
+                    Date.now() -
+                    responseTime
+
+                  ) / 1000
+
+                );
+
+
+              const additionalMinutes =
+                Math.floor(
+
+                  secondsAfterResponse / 60
+
+                );
+
+
+              elapsed =
+                elapsed +
+                additionalMinutes;
+
+
+              // ------------------------------------------------
+              // الحد الأقصى الطبيعي
+              // ------------------------------------------------
+
+              if (
+                elapsed > 130
+              ) {
+
+                elapsed = 130;
+
+              }
+
+
+              item.fixture.status.elapsed =
+                elapsed;
+
+
+            } catch (error) {
+
+              console.log(
+                'ELAPSED UPDATE ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
+            }
+          }
+
+
+          // =====================================================
+          // حفظ مباراة
+          // =====================================================
+
+          async function saveFixture(
+            item,
+            responseTime
+          ) {
+
+            if (
+              !item ||
+              !item.fixture ||
+              !item.fixture.id
+            ) {
+
+              return;
+
+            }
+
+
+            // =================================================
+            // الدوري
+            // =================================================
+
+            if (
+              !allowedLeague(item)
+            ) {
+
+              return;
+
+            }
+
+
+            const fixtureId =
+              String(
+                item.fixture.id
+              );
+
+
+            // =================================================
+            // تصحيح الحالة أولاً
+            // =================================================
+
+            normalizeStatus(
+              item
+            );
+
+
+            // =================================================
+            // تحديث الدقيقة LIVE
+            // =================================================
+
+            updateLiveElapsed(
+              item,
+              responseTime
+            );
+
+
+            const status =
+              item.fixture.status &&
+              item.fixture.status.short
+                ? String(
+                    item.fixture.status.short
+                  ).toUpperCase()
+                : '';
+
+
+            const elapsed =
+              item.fixture.status &&
+              item.fixture.status.elapsed != null
+                ? item.fixture.status.elapsed
+                : '';
+
+
+            const matchDate =
+              getMatchBaghdadDate(
+                item.fixture.timestamp
+              );
+
+
+            console.log(
+              `SAVE | ${fixtureId}` +
+              ` | ${matchDate}` +
+              ` | ${status}` +
+              ` | ${elapsed}'`
+            );
+
+
+            // =================================================
+            // الحفظ
+            // =================================================
+
+            await db
+              .ref(
+                `matches/${fixtureId}`
+              )
+              .set(
+                item
+              );
+
+
+            console.log(
+              `Saved matches/${fixtureId}`
+            );
+          }
+
+
+          // =====================================================
+          // حفظ مجموعة مباريات
+          // =====================================================
+
+          async function saveFixtures(
+            result
+          ) {
+
+            if (
+              !result ||
+              !result.data ||
+              !Array.isArray(
+                result.data.response
+              )
+            ) {
+
+              console.log(
+                'No fixtures response'
+              );
+
+              return;
+
+            }
+
+
+            console.log(
+              `Received ${result.data.response.length} fixtures`
+            );
+
+
+            for (
+              const item
+              of result.data.response
+            ) {
+
+              try {
+
+                await saveFixture(
+                  item,
+                  result.responseTime
+                );
+
+
+              } catch (error) {
+
+                console.log(
+                  'SAVE ERROR'
+                );
+
+
+                console.log(
+                  error.message
+                );
+              }
+            }
+          }
+
+
+          // =====================================================
+          // تنظيف المباريات خارج:
+          //
+          // أمس
+          // اليوم
+          // غدًا
+          // =====================================================
+
+          async function cleanupOldMatches() {
+
+            try {
+
+              console.log('');
+              console.log(
+                'CLEANUP OLD MATCHES START'
+              );
+
+
+              const today =
+                getBaghdadDate();
+
+
+              const yesterday =
+                addDays(
+                  today,
+                  -1
+                );
+
+
+              const tomorrow =
+                addDays(
+                  today,
+                  1
+                );
+
+
+              const allowedDates =
+                new Set([
+
+                  yesterday,
+                  today,
+                  tomorrow
+
+                ]);
+
+
+              const snapshot =
+                await db
+                  .ref('matches')
+                  .once('value');
+
+
+              const updates = {};
+
+
+              snapshot.forEach(
+                child => {
+
+                  try {
+
+                    const item =
+                      child.val();
+
+
+                    // -----------------------------------------
+                    // بيانات تالفة
+                    // -----------------------------------------
+
+                    if (
+                      !item ||
+                      !item.fixture ||
+                      !item.fixture.id
+                    ) {
+
+                      updates[
+                        `matches/${child.key}`
+                      ] = null;
+
+
+                      console.log(
+                        `REMOVE INVALID: ${child.key}`
+                      );
+
+
+                      return;
+                    }
+
+
+                    const matchDate =
+                      getMatchBaghdadDate(
+                        item.fixture.timestamp
+                      );
+
+
+                    // -----------------------------------------
+                    // إذا المباراة خارج الأيام الثلاثة
+                    // -----------------------------------------
+
+                    if (
+                      !allowedDates.has(
+                        matchDate
+                      )
+                    ) {
+
+                      updates[
+                        `matches/${child.key}`
+                      ] = null;
+
+
+                      console.log(
+                        `REMOVE OLD: ${child.key} | ${matchDate}`
+                      );
+
+                    }
+
+
+                  } catch (error) {
+
+                    console.log(
+                      'CLEANUP ITEM ERROR'
+                    );
+
+                  }
+                }
+              );
+
+
+              if (
+                Object.keys(
+                  updates
+                ).length > 0
+              ) {
+
+                await db
+                  .ref()
+                  .update(
+                    updates
+                  );
+
+
+                console.log(
+                  `Removed ${Object.keys(updates).length} old matches`
+                );
+
+
+              } else {
+
+                console.log(
+                  'No old matches to remove'
+                );
+
+              }
+
+
+              console.log(
+                'CLEANUP OLD MATCHES COMPLETED'
+              );
+
+
+            } catch (error) {
+
+              console.log(
+                'CLEANUP ERROR'
+              );
+
+
+              console.log(
+                error.message
+              );
+            }
+          }
+
+
+          // =====================================================
+          // المزامنة الرئيسية (تعديل مباشر لجلب الأمس واليوم والغد والمباشر دائماً)
+          // =====================================================
+
+          async function sync() {
+
+            try {
+
+              console.log('');
+              console.log(
+                '======================================'
+              );
+
+
+              console.log(
+                'FOOTBALL SYNC START'
+              );
+
+
+              console.log(
+                '======================================'
+              );
+
+
+              // =================================================
+              // الوقت
+              // =================================================
+
+              const today =
+                getBaghdadDate();
+
+
+              const yesterday =
+                addDays(
+                  today,
+                  -1
+                );
+
+
+              const tomorrow =
+                addDays(
+                  today,
+                  1
+                );
+
+
+              const hour =
+                getBaghdadHour();
+
+
+              const minute =
+                getBaghdadMinute();
+
+
+              console.log(
+                `Baghdad Date: ${today}`
+              );
+
+
+              console.log(
+                `Yesterday: ${yesterday}`
+              );
+
+
+              console.log(
+                `Tomorrow: ${tomorrow}`
+              );
+
+
+              console.log(
+                `Baghdad Time: ${hour}:${String(minute).padStart(2, '0')}`
+              );
+
+
+              // =================================================
+              // 1. LIVE MATCHES
+              // =================================================
+
+              console.log('');
+              console.log(
+                'LIVE MATCHES UPDATE START'
+              );
+
+
+              const liveResult =
+                await fetchAPI(
+
+                  `${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`
+
+                );
+
+
+              await saveFixtures(
+                liveResult
+              );
+
+
+              console.log(
+                'LIVE MATCHES UPDATE COMPLETED'
+              );
+
+
+              // =================================================
+              // 2. YESTERDAY MATCHES (جلب مباشر ودائم)
+              // =================================================
+
+              console.log('');
+              console.log(
+                'YESTERDAY UPDATE START'
+              );
+
+
+              const yesterdayResult =
+                await fetchAPI(
+
+                  `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
+
+                );
+
+
+              await saveFixtures(
+                yesterdayResult
+              );
+
+
+              console.log(
+                'YESTERDAY UPDATE COMPLETED'
+              );
+
+
+              // =================================================
+              // 3. TODAY MATCHES (جلب مباشر ودائم)
+              // =================================================
+
+              console.log('');
+              console.log(
+                'TODAY UPDATE START'
+              );
+
+
+              const todayResult =
+                await fetchAPI(
+
+                  `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
+
+                );
+
+
+              await saveFixtures(
+                todayResult
+              );
+
+
+              console.log(
+                'TODAY UPDATE COMPLETED'
+              );
+
+
+              // =================================================
+              // 4. TOMORROW MATCHES (جلب مباشر ودائم)
+              // =================================================
+
+              console.log('');
+              console.log(
+                'TOMORROW UPDATE START'
+              );
+
+
+              const tomorrowResult =
+                await fetchAPI(
+
+                  `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
+
+                );
+
+
+              await saveFixtures(
+                tomorrowResult
+              );
+
+
+              console.log(
+                'TOMORROW UPDATE COMPLETED'
+              );
+
+
+              // =================================================
+              // 5. تنظيف البيانات القديمة
+              // =================================================
+
+              await cleanupOldMatches();
+
+
+              // =================================================
+              // FINISH
+              // =================================================
+
+              console.log('');
+              console.log(
+                '======================================'
+              );
+
+
+              console.log(
+                'SYNC COMPLETED SUCCESSFULLY'
+              );
+
+
+              console.log(
+                '======================================'
+              );
+
+
+              process.exit(
+                0
+              );
+
+
+            } catch (error) {
+
+              console.error('');
+              console.error(
+                '======================================'
+              );
+
+
+              console.error(
+                'SYNC ERROR'
+              );
+
+
+              console.error(
+                error.message
+              );
+
+
+              console.error(
+                '======================================'
+              );
+
+
+              process.exit(
+                1
+              );
+            }
+          }
+
+
+          // =====================================================
+          // START
+          // =====================================================
+
+          sync();
+
+          EOF
+
+
+      # =====================================================
+      # Run
+      # =====================================================
+
+      - name: Run Sync
+        env:
+
+          API_FOOTBALL_KEY:
+            ${{ secrets.API_FOOTBALL_KEY }}
+
+          FIREBASE_DATABASE_URL:
+            ${{ secrets.FIREBASE_DATABASE_URL }}
+
+          FIREBASE_SERVICE_ACCOUNT:
+            ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+        run: |
+          node sync.js
+
