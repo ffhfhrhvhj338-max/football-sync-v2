@@ -7,33 +7,64 @@ on:
     - cron: "*/10 * * * *"
 
 jobs:
+
   sync:
+
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Sync Football Data
+
+      - name: Sync Bzzoiro to Firebase
+
         env:
+
           BZZOIRO_API_KEY: ${{ secrets.BZZOIRO_API_KEY }}
+
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
 
         run: |
+
+          npm init -y >/dev/null 2>&1
+
+          npm install firebase-admin@14.3.0 --no-save
+
+
           node --input-type=commonjs <<'NODE'
 
           const https = require("https");
-          const { execSync } = require("child_process");
+
+          const {
+            initializeApp,
+            cert,
+            deleteApp
+          } = require("firebase-admin/app");
+
+          const {
+            getDatabase
+          } = require("firebase-admin/database");
+
 
           console.log("");
-          console.log("================================================");
+          console.log("==============================================");
           console.log(" GOAL TV FOOTBALL SYNC");
           console.log(" BZZOIRO -> FIREBASE");
-          console.log("================================================");
+          console.log("==============================================");
           console.log("");
+
+
+          /*
+          ============================================================
+          ENVIRONMENT
+          ============================================================
+          */
 
           const BZZOIRO_API_KEY =
             process.env.BZZOIRO_API_KEY;
@@ -45,179 +76,60 @@ jobs:
             process.env.FIREBASE_DATABASE_URL;
 
 
-          /*
-          ============================================================
-          CHECK SECRETS
-          ============================================================
-          */
-
           if (!BZZOIRO_API_KEY) {
+
             console.error(
-              "❌ BZZOIRO_API_KEY غير موجود"
+              "ERROR: BZZOIRO_API_KEY غير موجود"
             );
+
             process.exit(1);
+
           }
+
 
           if (!FIREBASE_SERVICE_ACCOUNT) {
+
             console.error(
-              "❌ FIREBASE_SERVICE_ACCOUNT غير موجود"
+              "ERROR: FIREBASE_SERVICE_ACCOUNT غير موجود"
             );
+
             process.exit(1);
+
           }
+
 
           if (!FIREBASE_DATABASE_URL) {
+
             console.error(
-              "❌ FIREBASE_DATABASE_URL غير موجود"
+              "ERROR: FIREBASE_DATABASE_URL غير موجود"
             );
+
             process.exit(1);
+
           }
 
 
           console.log(
-            "✅ BZZOIRO_API_KEY موجود"
+            "OK: BZZOIRO_API_KEY"
           );
 
           console.log(
-            "✅ FIREBASE_SERVICE_ACCOUNT موجود"
+            "OK: FIREBASE_SERVICE_ACCOUNT"
           );
 
           console.log(
-            "✅ FIREBASE_DATABASE_URL موجود"
-          );
-
-
-          /*
-          ============================================================
-          INSTALL FIREBASE ADMIN
-          ============================================================
-          */
-
-          console.log("");
-          console.log(
-            "📦 Installing firebase-admin..."
-          );
-
-          try {
-
-            execSync(
-              "npm install firebase-admin@latest --no-save",
-              {
-                stdio: "inherit"
-              }
-            );
-
-          } catch (error) {
-
-            console.error(
-              "❌ فشل تثبيت firebase-admin"
-            );
-
-            process.exit(1);
-
-          }
-
-
-          /*
-          ============================================================
-          LOAD FIREBASE ADMIN
-          ============================================================
-          */
-
-          let admin;
-
-          try {
-
-            admin =
-              require("firebase-admin");
-
-            console.log(
-              "✅ firebase-admin loaded"
-            );
-
-          } catch (error) {
-
-            console.error(
-              "❌ فشل تحميل firebase-admin"
-            );
-
-            console.error(
-              error.stack ||
-              error.message
-            );
-
-            process.exit(1);
-
-          }
-
-
-          /*
-          ============================================================
-          CHECK FIREBASE ADMIN
-          ============================================================
-          */
-
-          console.log("");
-
-          console.log(
-            "🔍 فحص Firebase Admin..."
-          );
-
-          if (!admin) {
-
-            console.error(
-              "❌ admin غير موجود"
-            );
-
-            process.exit(1);
-
-          }
-
-          if (!admin.initializeApp) {
-
-            console.error(
-              "❌ initializeApp غير موجود"
-            );
-
-            process.exit(1);
-
-          }
-
-          if (!admin.credential) {
-
-            console.error(
-              "❌ credential غير موجود"
-            );
-
-            console.error(
-              "Firebase Admin package غير صحيح"
-            );
-
-            process.exit(1);
-
-          }
-
-          if (!admin.credential.cert) {
-
-            console.error(
-              "❌ credential.cert غير موجود"
-            );
-
-            process.exit(1);
-
-          }
-
-          console.log(
-            "✅ Firebase Admin جاهز"
+            "OK: FIREBASE_DATABASE_URL"
           );
 
 
           /*
           ============================================================
-          PARSE SERVICE ACCOUNT
+          FIREBASE SERVICE ACCOUNT
           ============================================================
           */
 
           let serviceAccount;
+
 
           try {
 
@@ -228,8 +140,9 @@ jobs:
 
           } catch (error) {
 
+            console.error("");
             console.error(
-              "❌ FIREBASE_SERVICE_ACCOUNT ليس JSON صالحًا"
+              "ERROR: FIREBASE_SERVICE_ACCOUNT JSON غير صالح"
             );
 
             console.error(
@@ -243,32 +156,48 @@ jobs:
 
           /*
           ============================================================
-          FIREBASE INIT
+          FIREBASE APP
           ============================================================
           */
 
+          let firebaseApp;
+
+          let database;
+
+
           try {
 
-            admin.initializeApp({
+            firebaseApp =
+              initializeApp({
 
-              credential:
-                admin.credential.cert(
-                  serviceAccount
-                ),
+                credential:
+                  cert(
+                    serviceAccount
+                  ),
 
-              databaseURL:
-                FIREBASE_DATABASE_URL
+                databaseURL:
+                  FIREBASE_DATABASE_URL
 
-            });
+              });
 
+
+            database =
+              getDatabase(
+                firebaseApp
+              );
+
+
+            console.log("");
             console.log(
-              "✅ Firebase initialized"
+              "OK: Firebase initialized"
             );
+
 
           } catch (error) {
 
+            console.error("");
             console.error(
-              "❌ فشل تشغيل Firebase"
+              "ERROR: Firebase initialization failed"
             );
 
             console.error(
@@ -281,16 +210,9 @@ jobs:
           }
 
 
-          const db =
-            admin.database();
-
-          const firebaseRef =
-            db.ref("firebase");
-
-
           /*
           ============================================================
-          ASYNC MAIN
+          MAIN
           ============================================================
           */
 
@@ -308,72 +230,72 @@ jobs:
               return new Promise(
                 (resolve, reject) => {
 
-                  const options = {
-
-                    hostname:
-                      "sports.bzzoiro.com",
-
-                    path:
-                      path,
-
-                    method:
-                      "GET",
-
-                    headers: {
-
-                      "Authorization":
-                        `Token ${BZZOIRO_API_KEY}`,
-
-                      "Accept":
-                        "application/json"
-
-                    }
-
-                  };
-
-
-                  const req =
+                  const request =
                     https.request(
-                      options,
-                      res => {
 
-                        let data = "";
+                      {
+
+                        hostname:
+                          "sports.bzzoiro.com",
+
+                        path:
+                          path,
+
+                        method:
+                          "GET",
+
+                        headers: {
+
+                          Authorization:
+                            `Token ${BZZOIRO_API_KEY}`,
+
+                          Accept:
+                            "application/json"
+
+                        }
+
+                      },
+
+                      response => {
+
+                        let body = "";
 
 
-                        res.on(
+                        response.on(
                           "data",
                           chunk => {
 
-                            data += chunk;
+                            body += chunk;
 
                           }
                         );
 
 
-                        res.on(
+                        response.on(
                           "end",
                           () => {
 
                             console.log(
-                              `Bzzoiro HTTP ${res.statusCode} - ${path}`
+                              `Bzzoiro ${response.statusCode}: ${path}`
                             );
 
 
                             if (
-                              res.statusCode < 200 ||
-                              res.statusCode >= 300
+                              response.statusCode < 200 ||
+                              response.statusCode >= 300
                             ) {
 
                               console.error(
-                                data.substring(
+                                body.substring(
                                   0,
-                                  3000
+                                  2000
                                 )
                               );
 
+
                               reject(
                                 new Error(
-                                  `Bzzoiro HTTP ${res.statusCode}`
+                                  `Bzzoiro HTTP ${response.statusCode}`
                                 )
                               );
 
@@ -384,11 +306,16 @@ jobs:
 
                             try {
 
-                              resolve(
+                              const json =
                                 JSON.parse(
-                                  data
-                                )
+                                  body
+                                );
+
+
+                              resolve(
+                                json
                               );
+
 
                             } catch (error) {
 
@@ -404,10 +331,11 @@ jobs:
                         );
 
                       }
+
                     );
 
 
-                  req.on(
+                  request.on(
                     "error",
                     error => {
 
@@ -419,7 +347,7 @@ jobs:
                   );
 
 
-                  req.end();
+                  request.end();
 
                 }
               );
@@ -492,7 +420,7 @@ jobs:
             */
 
             function getBaghdadDate(
-              offsetDays
+              offset
             ) {
 
               const now =
@@ -529,8 +457,8 @@ jobs:
               const year =
                 Number(
                   parts.find(
-                    p =>
-                      p.type ===
+                    x =>
+                      x.type ===
                       "year"
                   ).value
                 );
@@ -539,8 +467,8 @@ jobs:
               const month =
                 Number(
                   parts.find(
-                    p =>
-                      p.type ===
+                    x =>
+                      x.type ===
                       "month"
                   ).value
                 );
@@ -549,8 +477,8 @@ jobs:
               const day =
                 Number(
                   parts.find(
-                    p =>
-                      p.type ===
+                    x =>
+                      x.type ===
                       "day"
                   ).value
                 );
@@ -568,7 +496,7 @@ jobs:
 
               date.setUTCDate(
                 date.getUTCDate() +
-                offsetDays
+                offset
               );
 
 
@@ -585,8 +513,10 @@ jobs:
             const yesterday =
               getBaghdadDate(-1);
 
+
             const today =
               getBaghdadDate(0);
+
 
             const tomorrow =
               getBaghdadDate(1);
@@ -595,15 +525,15 @@ jobs:
             console.log("");
 
             console.log(
-              `🇮🇶 أمس    : ${yesterday}`
+              `Yesterday: ${yesterday}`
             );
 
             console.log(
-              `🇮🇶 اليوم  : ${today}`
+              `Today: ${today}`
             );
 
             console.log(
-              `🇮🇶 غدًا   : ${tomorrow}`
+              `Tomorrow: ${tomorrow}`
             );
 
 
@@ -620,8 +550,10 @@ jobs:
               if (!isoDate) {
 
                 return {
+
                   date: "",
                   time: ""
+
                 };
 
               }
@@ -707,24 +639,24 @@ jobs:
 
               const year =
                 dateParts.find(
-                  p =>
-                    p.type ===
+                  x =>
+                    x.type ===
                     "year"
                 ).value;
 
 
               const month =
                 dateParts.find(
-                  p =>
-                    p.type ===
+                  x =>
+                    x.type ===
                     "month"
                 ).value;
 
 
               const day =
                 dateParts.find(
-                  p =>
-                    p.type ===
+                  x =>
+                    x.type ===
                     "day"
                 ).value;
 
@@ -781,16 +713,16 @@ jobs:
               }
 
 
-              const s =
+              const value =
                 String(status)
                   .toLowerCase()
                   .trim();
 
 
               if (
-                s === "live" ||
-                s === "inplay" ||
-                s === "in_play"
+                value === "live" ||
+                value === "inplay" ||
+                value === "in_play"
               ) {
 
                 return "live";
@@ -799,9 +731,9 @@ jobs:
 
 
               if (
-                s === "finished" ||
-                s === "ft" ||
-                s === "fulltime"
+                value === "finished" ||
+                value === "ft" ||
+                value === "fulltime"
               ) {
 
                 return "finished";
@@ -810,7 +742,7 @@ jobs:
 
 
               if (
-                s === "postponed"
+                value === "postponed"
               ) {
 
                 return "postponed";
@@ -819,8 +751,8 @@ jobs:
 
 
               if (
-                s === "cancelled" ||
-                s === "canceled"
+                value === "cancelled" ||
+                value === "canceled"
               ) {
 
                 return "cancelled";
@@ -829,10 +761,10 @@ jobs:
 
 
               if (
-                s === "notstarted" ||
-                s === "not_started" ||
-                s === "scheduled" ||
-                s === "upcoming"
+                value === "notstarted" ||
+                value === "not_started" ||
+                value === "scheduled" ||
+                value === "upcoming"
               ) {
 
                 return "notstarted";
@@ -840,7 +772,7 @@ jobs:
               }
 
 
-              return s;
+              return value;
 
             }
 
@@ -849,14 +781,14 @@ jobs:
               status
             ) {
 
-              const s =
+              const value =
                 normalizeStatus(
                   status
                 );
 
 
               if (
-                s === "live"
+                value === "live"
               ) {
 
                 return "مباشر";
@@ -865,7 +797,7 @@ jobs:
 
 
               if (
-                s === "finished"
+                value === "finished"
               ) {
 
                 return "انتهت";
@@ -874,7 +806,7 @@ jobs:
 
 
               if (
-                s === "postponed"
+                value === "postponed"
               ) {
 
                 return "مؤجلة";
@@ -883,7 +815,7 @@ jobs:
 
 
               if (
-                s === "cancelled"
+                value === "cancelled"
               ) {
 
                 return "ملغاة";
@@ -975,10 +907,11 @@ jobs:
 
                 return league;
 
+
               } catch (error) {
 
-                console.warn(
-                  `⚠️ تعذر جلب الدوري ${leagueId}`
+                console.log(
+                  `WARNING: league ${leagueId} unavailable`
                 );
 
 
@@ -1011,7 +944,7 @@ jobs:
 
             /*
             ========================================================
-            GET MATCHES
+            GET DAY MATCHES
             ========================================================
             */
 
@@ -1022,17 +955,18 @@ jobs:
               console.log("");
 
               console.log(
-                `🔎 جلب مباريات: ${date}`
+                `Getting matches: ${date}`
               );
 
 
-              const allEvents = [];
+              const events =
+                [];
+
 
               let offset = 0;
 
-              const limit = 200;
 
-              let pageNumber = 1;
+              const limit = 200;
 
 
               while (true) {
@@ -1045,31 +979,30 @@ jobs:
                   `&offset=${offset}`;
 
 
-                const data =
+                const result =
                   await bzzoiroRequest(
                     path
                   );
 
 
-                const events =
+                const page =
                   extractEvents(
-                    data
+                    result
                   );
 
 
-                console.log(
-                  `📄 الصفحة ${pageNumber}: ${events.length} مباراة`
+                events.push(
+                  ...page
                 );
 
 
-                allEvents.push(
-                  ...events
+                console.log(
+                  `Page offset ${offset}: ${page.length}`
                 );
 
 
                 if (
-                  events.length <
-                  limit
+                  page.length < limit
                 ) {
 
                   break;
@@ -1080,16 +1013,11 @@ jobs:
                 offset +=
                   limit;
 
-                pageNumber++;
-
 
                 if (
-                  pageNumber > 50
+                  offset >
+                  10000
                 ) {
-
-                  console.warn(
-                    "⚠️ تم الوصول إلى حد الصفحات"
-                  );
 
                   break;
 
@@ -1104,7 +1032,7 @@ jobs:
 
               for (
                 const event
-                of allEvents
+                of events
               ) {
 
                 if (
@@ -1131,7 +1059,7 @@ jobs:
 
 
               console.log(
-                `✅ ${date}: ${result.length} مباراة`
+                `${date}: ${result.length} matches`
               );
 
 
@@ -1142,19 +1070,13 @@ jobs:
 
             /*
             ========================================================
-            MATCH MAP
+            MATCHES
             ========================================================
             */
 
             const matchesMap =
               new Map();
 
-
-            /*
-            ========================================================
-            ADD MATCH
-            ========================================================
-            */
 
             async function addMatch(
               event,
@@ -1171,7 +1093,7 @@ jobs:
               }
 
 
-              const matchId =
+              const id =
                 String(
                   event.id
                 );
@@ -1189,32 +1111,14 @@ jobs:
                 );
 
 
-              const homeTeamId =
+              const homeId =
                 event.home_team_id ??
                 "";
 
 
-              const awayTeamId =
+              const awayId =
                 event.away_team_id ??
                 "";
-
-
-              const homeTeamLogo =
-                homeTeamId
-                  ? `https://sports.bzzoiro.com/img/team/${homeTeamId}/`
-                  : "";
-
-
-              const awayTeamLogo =
-                awayTeamId
-                  ? `https://sports.bzzoiro.com/img/team/${awayTeamId}/`
-                  : "";
-
-
-              const leagueLogo =
-                event.league_id
-                  ? `https://sports.bzzoiro.com/img/league/${event.league_id}/`
-                  : "";
 
 
               const status =
@@ -1233,7 +1137,8 @@ jobs:
                 null;
 
 
-              let score = "-";
+              let score =
+                "-";
 
 
               if (
@@ -1250,10 +1155,10 @@ jobs:
               const match = {
 
                 match_id:
-                  matchId,
+                  id,
 
                 event_id:
-                  matchId,
+                  id,
 
                 item_type:
                   "match",
@@ -1323,29 +1228,35 @@ jobs:
                   "",
 
                 league_logo:
-                  leagueLogo,
+                  event.league_id
+                    ? `https://sports.bzzoiro.com/img/league/${event.league_id}/`
+                    : "",
 
 
                 home_team_id:
-                  homeTeamId,
+                  homeId,
 
                 home_team_name:
                   event.home_team ??
                   "",
 
                 home_team_logo:
-                  homeTeamLogo,
+                  homeId
+                    ? `https://sports.bzzoiro.com/img/team/${homeId}/`
+                    : "",
 
 
                 away_team_id:
-                  awayTeamId,
+                  awayId,
 
                 away_team_name:
                   event.away_team ??
                   "",
 
                 away_team_logo:
-                  awayTeamLogo,
+                  awayId
+                    ? `https://sports.bzzoiro.com/img/team/${awayId}/`
+                    : "",
 
 
                 round_number:
@@ -1368,6 +1279,7 @@ jobs:
                   event.stage_name ??
                   "",
 
+
                 venue_id:
                   event.venue_id ??
                   null,
@@ -1375,10 +1287,6 @@ jobs:
                 referee_id:
                   event.referee_id ??
                   null,
-
-                live_websocket:
-                  event.live_websocket ??
-                  false,
 
 
                 show_day_header:
@@ -1391,7 +1299,7 @@ jobs:
 
 
               matchesMap.set(
-                matchId,
+                id,
                 match
               );
 
@@ -1482,32 +1390,32 @@ jobs:
             console.log("");
 
             console.log(
-              "🔴 فحص المباريات LIVE..."
+              "Checking LIVE..."
             );
 
 
             try {
 
-              const liveData =
+              const live =
                 await bzzoiroRequest(
                   "/api/v2/events/live/"
                 );
 
 
-              const liveMatches =
+              const liveEvents =
                 extractEvents(
-                  liveData
+                  live
                 );
 
 
               console.log(
-                `🔴 LIVE: ${liveMatches.length}`
+                `LIVE: ${liveEvents.length}`
               );
 
 
               for (
                 const event
-                of liveMatches
+                of liveEvents
               ) {
 
                 await addMatch(
@@ -1519,12 +1427,8 @@ jobs:
 
             } catch (error) {
 
-              console.warn(
-                "⚠️ تعذر فحص LIVE"
-              );
-
-              console.warn(
-                error.message
+              console.log(
+                "WARNING: LIVE unavailable"
               );
 
             }
@@ -1542,7 +1446,7 @@ jobs:
               );
 
 
-            const dayOrder = {
+            const order = {
 
               "أمس": 1,
               "اليوم": 2,
@@ -1555,13 +1459,13 @@ jobs:
               (a, b) => {
 
                 const dayA =
-                  dayOrder[
+                  order[
                     a.day_title
                   ] || 99;
 
 
                 const dayB =
-                  dayOrder[
+                  order[
                     b.day_title
                   ] || 99;
 
@@ -1575,16 +1479,16 @@ jobs:
                 }
 
 
-                const timeA =
+                const dateA =
                   `${a.match_date} ${a.match_time}`;
 
 
-                const timeB =
+                const dateB =
                   `${b.match_date} ${b.match_time}`;
 
 
-                return timeA.localeCompare(
-                  timeB
+                return dateA.localeCompare(
+                  dateB
                 );
 
               }
@@ -1597,9 +1501,11 @@ jobs:
             ========================================================
             */
 
-            let previousDay = "";
+            let previousDay =
+              "";
 
-            let previousLeague = "";
+            let previousLeague =
+              "";
 
 
             for (
@@ -1615,8 +1521,10 @@ jobs:
                 match.show_day_header =
                   true;
 
+
                 previousDay =
                   match.day_title;
+
 
                 previousLeague =
                   "";
@@ -1636,6 +1544,7 @@ jobs:
                 match.show_league_header =
                   true;
 
+
                 previousLeague =
                   leagueKey;
 
@@ -1646,52 +1555,12 @@ jobs:
 
             /*
             ========================================================
-            SUMMARY
+            FIREBASE
             ========================================================
             */
 
-            console.log("");
-
-            console.log(
-              "================================================"
-            );
-
-            console.log(
-              "📊 SYNC SUMMARY"
-            );
-
-            console.log(
-              "================================================"
-            );
-
-            console.log(
-              `📅 أمس    : ${yesterdayMatches.length}`
-            );
-
-            console.log(
-              `📅 اليوم  : ${todayMatches.length}`
-            );
-
-            console.log(
-              `📅 غدًا   : ${tomorrowMatches.length}`
-            );
-
-            console.log(
-              `⚽ إجمالي : ${matches.length}`
-            );
-
-            console.log(
-              `🏆 الدوريات: ${leagueCache.size}`
-            );
-
-
-            /*
-            ========================================================
-            FIREBASE DATA
-            ========================================================
-            */
-
-            const firebaseData = {};
+            const firebaseData =
+              {};
 
 
             for (
@@ -1706,26 +1575,27 @@ jobs:
             }
 
 
-            /*
-            ========================================================
-            OLD FIREBASE
-            ========================================================
-            */
-
             console.log("");
 
             console.log(
-              "📥 قراءة بيانات Firebase..."
+              "Reading Firebase..."
             );
 
 
-            let oldData = {};
+            const firebaseRoot =
+              database.ref(
+                "firebase"
+              );
+
+
+            let oldData =
+              {};
 
 
             try {
 
               const snapshot =
-                await firebaseRef.once(
+                await firebaseRoot.once(
                   "value"
                 );
 
@@ -1737,12 +1607,15 @@ jobs:
             } catch (error) {
 
               console.error(
-                "❌ فشل قراءة Firebase"
+                "ERROR: Firebase read failed"
               );
 
+
               console.error(
+                error.stack ||
                 error.message
               );
+
 
               process.exit(1);
 
@@ -1755,7 +1628,8 @@ jobs:
             ========================================================
             */
 
-            const updates = {};
+            const updates =
+              {};
 
 
             for (
@@ -1806,33 +1680,35 @@ jobs:
 
             /*
             ========================================================
-            WRITE FIREBASE
+            WRITE
             ========================================================
             */
 
             console.log("");
 
             console.log(
-              "📤 إرسال البيانات إلى Firebase..."
+              "Writing Firebase..."
             );
 
 
             try {
 
-              await firebaseRef.update(
+              await firebaseRoot.update(
                 updates
               );
 
             } catch (error) {
 
               console.error(
-                "❌ فشل تحديث Firebase"
+                "ERROR: Firebase write failed"
               );
+
 
               console.error(
                 error.stack ||
                 error.message
               );
+
 
               process.exit(1);
 
@@ -1841,22 +1717,54 @@ jobs:
 
             /*
             ========================================================
-            PRINT MATCHES
+            SUMMARY
             ========================================================
             */
 
             console.log("");
 
             console.log(
-              "================================================"
+              "=============================================="
             );
 
             console.log(
-              "📋 أول 10 مباريات:"
+              "SYNC SUMMARY"
             );
 
             console.log(
-              "================================================"
+              "=============================================="
+            );
+
+
+            console.log(
+              `Yesterday: ${yesterdayMatches.length}`
+            );
+
+
+            console.log(
+              `Today: ${todayMatches.length}`
+            );
+
+
+            console.log(
+              `Tomorrow: ${tomorrowMatches.length}`
+            );
+
+
+            console.log(
+              `Total: ${matches.length}`
+            );
+
+
+            console.log(
+              `Leagues: ${leagueCache.size}`
+            );
+
+
+            console.log("");
+
+            console.log(
+              "First 10 matches:"
             );
 
 
@@ -1891,67 +1799,58 @@ jobs:
             console.log("");
 
             console.log(
-              "================================================"
+              "=============================================="
             );
 
             console.log(
-              "✅ تمت المزامنة بنجاح"
+              "SUCCESS"
             );
 
             console.log(
-              "✅ Bzzoiro يعمل"
+              "Bzzoiro -> Firebase"
             );
 
             console.log(
-              "✅ Firebase يعمل"
-            );
-
-            console.log(
-              "✅ Goal TV data جاهزة"
-            );
-
-            console.log(
-              "================================================"
+              "=============================================="
             );
 
 
             /*
             ========================================================
-            CLOSE FIREBASE
+            DELETE FIREBASE APP
             ========================================================
             */
 
             try {
 
-              await admin
-                .app()
-                .delete();
+              await deleteApp(
+                firebaseApp
+              );
 
             } catch (error) {
 
-              console.warn(
-                "⚠️ تعذر إغلاق Firebase"
-              );
+              // لا نعتبر فشل الإغلاق فشلًا للمزامنة
 
             }
 
 
           })().catch(
-            error => {
+            async error => {
 
               console.error("");
 
               console.error(
-                "================================================"
+                "=============================================="
               );
 
               console.error(
-                "❌ SYNC FAILED"
+                "SYNC FAILED"
               );
 
               console.error(
-                "================================================"
+                "=============================================="
               );
+
 
               console.error(
                 error &&
@@ -1959,6 +1858,18 @@ jobs:
                   ? error.stack
                   : error
               );
+
+
+              try {
+
+                await deleteApp(
+                  firebaseApp
+                );
+
+              } catch (e) {
+
+              }
+
 
               process.exit(1);
 
