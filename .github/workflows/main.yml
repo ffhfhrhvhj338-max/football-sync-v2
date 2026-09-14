@@ -1,20 +1,14 @@
-name: Football API Sync
+name: Test Bzzoiro API
 
 on:
   workflow_dispatch:
 
-  schedule:
-    - cron: "*/5 * * * *"
-
 jobs:
-
-  sync:
-
+  test:
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -22,1254 +16,243 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Dependencies
+      - name: Test Bzzoiro
+        env:
+          BZZOIRO_API_KEY: ${{ secrets.BZZOIRO_API_KEY }}
         run: |
-          npm init -y
-          npm install axios firebase-admin
+          node <<'NODE'
+          const https = require('https');
 
-      - name: Create Sync Script
-        run: |
+          const API_KEY = process.env.BZZOIRO_API_KEY;
 
-          cat << 'EOF' > sync.js
-
-          const axios = require('axios');
-          const admin = require('firebase-admin');
-
-
-          // =====================================================
-          // SETTINGS
-          // =====================================================
-
-          const API_BASE =
-            'https://v3.football.api-sports.io';
-
-          const TIMEZONE =
-            'Asia/Baghdad';
-
-
-          const TOP_LEAGUES = new Set([
-            1,
-            2,
-            3,
-            4,
-            9,
-            11,
-            15,
-            39,
-            61,
-            78,
-            135,
-            140,
-            307,
-            848
-          ]);
-
-
-          const LIVE_STATUSES = [
-            '1H',
-            'HT',
-            '2H',
-            'ET',
-            'P',
-            'LIVE'
-          ];
-
-
-          // =====================================================
-          // CHECK SECRETS
-          // =====================================================
-
-          console.log('');
-          console.log('======================================');
-          console.log('CHECK SECRETS');
-          console.log('======================================');
-
-
-          if (!process.env.API_FOOTBALL_KEY) {
-            throw new Error(
-              'API_FOOTBALL_KEY is missing'
-            );
+          if (!API_KEY) {
+            console.error("❌ BZZOIRO_API_KEY غير موجود");
+            process.exit(1);
           }
 
-
-          if (!process.env.FIREBASE_DATABASE_URL) {
-            throw new Error(
-              'FIREBASE_DATABASE_URL is missing'
-            );
-          }
-
-
-          if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-            throw new Error(
-              'FIREBASE_SERVICE_ACCOUNT is missing'
-            );
-          }
-
-
-          console.log(
-            'API_FOOTBALL_KEY: OK'
-          );
-
-
-          console.log(
-            'FIREBASE_DATABASE_URL: OK'
-          );
-
-
-          console.log(
-            'FIREBASE_SERVICE_ACCOUNT: OK'
-          );
-
-
-          // =====================================================
-          // FIREBASE
-          // =====================================================
-
-          let serviceAccount;
-
-
-          try {
-
-            serviceAccount =
-              JSON.parse(
-                process.env.FIREBASE_SERVICE_ACCOUNT
-              );
-
-          } catch (error) {
-
-            throw new Error(
-              'FIREBASE_SERVICE_ACCOUNT is not valid JSON'
-            );
-          }
-
-
-          admin.initializeApp({
-
-            credential:
-              admin.credential.cert(
-                serviceAccount
-              ),
-
-            databaseURL:
-              process.env.FIREBASE_DATABASE_URL
-
-          });
-
-
-          const db =
-            admin.database();
-
-
-          console.log(
-            'Firebase Admin initialized'
-          );
-
-
-          // =====================================================
-          // API HEADERS
-          // =====================================================
-
-          const headers = {
-
-            'x-apisports-key':
-              process.env.API_FOOTBALL_KEY,
-
-            'Accept':
-              'application/json'
-
-          };
-
-
-          // =====================================================
-          // STATISTICS
-          // =====================================================
-
-          const stats = {
-
-            requests: 0,
-
-            received: 0,
-
-            allowed: 0,
-
-            saved: 0,
-
-            skipped: 0,
-
-            invalid: 0,
-
-            errors: 0,
-
-            removed: 0
-
-          };
-
-
-          // =====================================================
-          // BAGHDAD DATE
-          // =====================================================
-
-          function getBaghdadDate() {
-
-            const formatter =
-              new Intl.DateTimeFormat(
-                'en-CA',
-                {
-                  timeZone:
-                    TIMEZONE,
-
-                  year:
-                    'numeric',
-
-                  month:
-                    '2-digit',
-
-                  day:
-                    '2-digit'
+          function request(path) {
+            return new Promise((resolve, reject) => {
+              const options = {
+                hostname: 'sports.bzzoiro.com',
+                path: path,
+                method: 'GET',
+                headers: {
+                  'Authorization': `Token ${API_KEY}`,
+                  'Accept': 'application/json'
                 }
-              );
-
-
-            return formatter.format(
-              new Date()
-            );
-          }
-
-
-          // =====================================================
-          // ADD DAYS
-          // =====================================================
-
-          function addDays(
-            dateString,
-            days
-          ) {
-
-            const parts =
-              dateString.split('-');
-
-
-            const date =
-              new Date(
-                Date.UTC(
-                  Number(parts[0]),
-                  Number(parts[1]) - 1,
-                  Number(parts[2])
-                )
-              );
-
-
-            date.setUTCDate(
-              date.getUTCDate() + days
-            );
-
-
-            return date
-              .toISOString()
-              .substring(0, 10);
-          }
-
-
-          // =====================================================
-          // MATCH DATE BAGHDAD
-          // =====================================================
-
-          function getMatchBaghdadDate(
-            timestamp
-          ) {
-
-            const ts =
-              Number(timestamp);
-
-
-            if (
-              !Number.isFinite(ts) ||
-              ts <= 0
-            ) {
-
-              return '';
-
-            }
-
-
-            const formatter =
-              new Intl.DateTimeFormat(
-                'en-CA',
-                {
-                  timeZone:
-                    TIMEZONE,
-
-                  year:
-                    'numeric',
-
-                  month:
-                    '2-digit',
-
-                  day:
-                    '2-digit'
-                }
-              );
-
-
-            return formatter.format(
-              new Date(ts * 1000)
-            );
-          }
-
-
-          // =====================================================
-          // API REQUEST
-          // =====================================================
-
-          async function fetchAPI(
-            url
-          ) {
-
-            console.log('');
-            console.log(
-              '--------------------------------------'
-            );
-
-            console.log(
-              'API REQUEST:'
-            );
-
-            console.log(
-              url
-            );
-
-            console.log(
-              '--------------------------------------'
-            );
-
-
-            stats.requests++;
-
-
-            try {
-
-              const response =
-                await axios.get(
-                  url,
-                  {
-                    headers:
-                      headers,
-
-                    timeout:
-                      30000
-                  }
-                );
-
-
-              if (
-                !response.data
-              ) {
-
-                throw new Error(
-                  'Empty API response'
-                );
-              }
-
-
-              if (
-                response.data.errors &&
-                Object.keys(
-                  response.data.errors
-                ).length > 0
-              ) {
-
-                throw new Error(
-                  'API ERROR: ' +
-                  JSON.stringify(
-                    response.data.errors
-                  )
-                );
-              }
-
-
-              const list =
-                Array.isArray(
-                  response.data.response
-                )
-                  ? response.data.response
-                  : [];
-
-
-              console.log(
-                `API RECEIVED: ${list.length}`
-              );
-
-
-              stats.received +=
-                list.length;
-
-
-              return {
-
-                data:
-                  response.data
-
               };
 
-
-            } catch (error) {
-
-              console.error('');
-              console.error(
-                'API REQUEST FAILED'
-              );
-
-              console.error(
-                error.message
-              );
-
-
-              if (
-                error.response &&
-                error.response.data
-              ) {
-
-                console.error(
-                  JSON.stringify(
-                    error.response.data
-                  )
-                );
-              }
-
-
-              throw error;
-            }
-          }
-
-
-          // =====================================================
-          // CHECK LEAGUE
-          // =====================================================
-
-          function allowedLeague(
-            item
-          ) {
-
-            if (
-              !item ||
-              !item.league ||
-              item.league.id == null
-            ) {
-
-              return false;
-            }
-
-
-            const id =
-              Number(
-                item.league.id
-              );
-
-
-            return TOP_LEAGUES.has(id);
-          }
-
-
-          // =====================================================
-          // NORMALIZE STATUS
-          // =====================================================
-
-          function normalizeStatus(
-            item
-          ) {
-
-            if (
-              !item ||
-              !item.fixture
-            ) {
-
-              return;
-            }
-
-
-            if (
-              !item.fixture.status
-            ) {
-
-              item.fixture.status = {};
-            }
-
-
-            let status =
-              String(
-                item.fixture.status.short || ''
-              ).toUpperCase();
-
-
-            const timestamp =
-              Number(
-                item.fixture.timestamp
-              );
-
-
-            if (
-              LIVE_STATUSES.includes(status) &&
-              timestamp > 0
-            ) {
-
-              const minutes =
-                Math.floor(
-                  (
-                    Math.floor(
-                      Date.now() / 1000
-                    ) -
-                    timestamp
-                  ) / 60
-                );
-
-
-              console.log(
-                `STATUS | ${item.fixture.id} | ${status} | ${minutes} minutes`
-              );
-
-
-              if (
-                minutes >= 130
-              ) {
-
-                console.log(
-                  `STALE LIVE -> FT | ${item.fixture.id}`
-                );
-
-
-                status =
-                  'FT';
-
-
-                item.fixture.status.short =
-                  'FT';
-
-
-                item.fixture.status.long =
-                  'Match Finished';
-
-
-                item.fixture.status.elapsed =
-                  90;
-              }
-            }
-
-
-            item.fixture.status.short =
-              status;
-          }
-
-
-          // =====================================================
-          // SAVE FIXTURE
-          // =====================================================
-
-          async function saveFixture(
-            item
-          ) {
-
-            if (
-              !item ||
-              !item.fixture ||
-              !item.fixture.id
-            ) {
-
-              stats.invalid++;
-
-              return;
-            }
-
-
-            const fixtureId =
-              String(
-                item.fixture.id
-              );
-
-
-            // -----------------------------------------------
-            // الدوري
-            // -----------------------------------------------
-
-            if (
-              !allowedLeague(item)
-            ) {
-
-              stats.skipped++;
-
-              return;
-            }
-
-
-            stats.allowed++;
-
-
-            // -----------------------------------------------
-            // الحالة
-            // -----------------------------------------------
-
-            normalizeStatus(
-              item
-            );
-
-
-            const status =
-              item.fixture.status &&
-              item.fixture.status.short
-                ? String(
-                    item.fixture.status.short
-                  ).toUpperCase()
-                : '';
-
-
-            const elapsed =
-              item.fixture.status &&
-              item.fixture.status.elapsed != null
-                ? item.fixture.status.elapsed
-                : '';
-
-
-            const matchDate =
-              getMatchBaghdadDate(
-                item.fixture.timestamp
-              );
-
-
-            console.log(
-              `SAVE | ID=${fixtureId} | DATE=${matchDate} | STATUS=${status} | ELAPSED=${elapsed}`
-            );
-
-
-            try {
-
-              await db
-                .ref(
-                  `matches/${fixtureId}`
-                )
-                .set(
-                  item
-                );
-
-
-              stats.saved++;
-
-
-              console.log(
-                `FIREBASE SAVED | matches/${fixtureId}`
-              );
-
-
-            } catch (error) {
-
-              stats.errors++;
-
-
-              console.error(
-                `FIREBASE SAVE ERROR | ${fixtureId}`
-              );
-
-
-              console.error(
-                error.message
-              );
-
-
-              throw error;
-            }
-          }
-
-
-          // =====================================================
-          // SAVE FIXTURES
-          // =====================================================
-
-          async function saveFixtures(
-            result,
-            source
-          ) {
-
-            if (
-              !result ||
-              !result.data ||
-              !Array.isArray(
-                result.data.response
-              )
-            ) {
-
-              throw new Error(
-                `${source}: invalid API response`
-              );
-            }
-
-
-            const list =
-              result.data.response;
-
-
-            console.log('');
-            console.log(
-              `${source}: ${list.length} fixtures`
-            );
-
-
-            for (
-              const item
-              of list
-            ) {
-
-              await saveFixture(
-                item
-              );
-            }
-          }
-
-
-          // =====================================================
-          // FIREBASE TEST
-          // =====================================================
-
-          async function testFirebase() {
-
-            console.log('');
-            console.log(
-              '======================================'
-            );
-
-            console.log(
-              'FIREBASE CONNECTION TEST'
-            );
-
-            console.log(
-              '======================================'
-            );
-
-
-            const ref =
-              db.ref(
-                '_sync_test'
-              );
-
-
-            const testData = {
-
-              status:
-                'OK',
-
-              source:
-                'GitHub Actions',
-
-              time:
-                new Date().toISOString()
-
-            };
-
-
-            try {
-
-              await ref.set(
-                testData
-              );
-
-
-              console.log(
-                'FIREBASE WRITE TEST: SUCCESS'
-              );
-
-
-              const result =
-                await ref.once(
-                  'value'
-                );
-
-
-              if (
-                !result.exists()
-              ) {
-
-                throw new Error(
-                  'Firebase read-back failed'
-                );
-              }
-
-
-              console.log(
-                'FIREBASE READ TEST: SUCCESS'
-              );
-
-
-              await ref.remove();
-
-
-              console.log(
-                'FIREBASE TEST CLEANED'
-              );
-
-
-            } catch (error) {
-
-              console.error(
-                'FIREBASE CONNECTION TEST FAILED'
-              );
-
-
-              console.error(
-                error.message
-              );
-
-
-              throw error;
-            }
-          }
-
-
-          // =====================================================
-          // CLEAN OLD MATCHES
-          // =====================================================
-
-          async function cleanupOldMatches() {
-
-            console.log('');
-            console.log(
-              '======================================'
-            );
-
-            console.log(
-              'CLEANUP OLD MATCHES'
-            );
-
-            console.log(
-              '======================================'
-            );
-
-
-            const today =
-              getBaghdadDate();
-
-
-            const yesterday =
-              addDays(
-                today,
-                -1
-              );
-
-
-            const tomorrow =
-              addDays(
-                today,
-                1
-              );
-
-
-            const allowedDates =
-              new Set([
-                yesterday,
-                today,
-                tomorrow
-              ]);
-
-
-            console.log(
-              `Allowed dates: ${yesterday} | ${today} | ${tomorrow}`
-            );
-
-
-            const snapshot =
-              await db
-                .ref(
-                  'matches'
-                )
-                .once(
-                  'value'
-                );
-
-
-            if (
-              !snapshot.exists()
-            ) {
-
-              console.log(
-                'Firebase /matches is empty'
-              );
-
-
-              return;
-            }
-
-
-            const updates = {};
-
-
-            snapshot.forEach(
-              child => {
-
-                try {
-
-                  const item =
-                    child.val();
-
-
-                  if (
-                    !item ||
-                    !item.fixture
-                  ) {
-
-                    updates[
-                      `matches/${child.key}`
-                    ] = null;
-
-
-                    stats.removed++;
-
-
-                    console.log(
-                      `REMOVE INVALID: ${child.key}`
-                    );
-
-
-                    return;
-                  }
-
-
-                  const matchDate =
-                    getMatchBaghdadDate(
-                      item.fixture.timestamp
-                    );
-
-
-                  if (
-                    !allowedDates.has(
-                      matchDate
-                    )
-                  ) {
-
-                    updates[
-                      `matches/${child.key}`
-                    ] = null;
-
-
-                    stats.removed++;
-
-
-                    console.log(
-                      `REMOVE OLD: ${child.key} | ${matchDate}`
+              const req = https.request(options, res => {
+                let data = '';
+
+                res.on('data', chunk => {
+                  data += chunk;
+                });
+
+                res.on('end', () => {
+                  console.log(`\nHTTP ${res.statusCode} - ${path}`);
+
+                  if (res.statusCode < 200 || res.statusCode >= 300) {
+                    console.log(data.substring(0, 1000));
+                    return reject(
+                      new Error(`HTTP ${res.statusCode}`)
                     );
                   }
 
+                  try {
+                    resolve(JSON.parse(data));
+                  } catch (e) {
+                    console.log(data.substring(0, 1000));
+                    reject(e);
+                  }
+                });
+              });
 
-                } catch (error) {
+              req.on('error', reject);
+              req.end();
+            });
+          }
 
-                  console.error(
-                    `CLEANUP ERROR: ${child.key}`
-                  );
-                }
+          function getDate(offset) {
+            const d = new Date();
+
+            d.setUTCDate(d.getUTCDate() + offset);
+
+            return d.toISOString().substring(0, 10);
+          }
+
+          function extractEvents(data) {
+            if (Array.isArray(data)) return data;
+
+            if (Array.isArray(data.results)) return data.results;
+
+            if (Array.isArray(data.events)) return data.events;
+
+            if (Array.isArray(data.data)) return data.data;
+
+            return [];
+          }
+
+          function value(obj, keys) {
+            for (const key of keys) {
+              if (
+                obj &&
+                obj[key] !== undefined &&
+                obj[key] !== null
+              ) {
+                return obj[key];
               }
-            );
+            }
 
+            return '';
+          }
 
-            if (
-              Object.keys(updates).length > 0
-            ) {
+          function printEvents(title, events) {
+            console.log(`\n==============================`);
+            console.log(`${title}`);
+            console.log(`عدد المباريات: ${events.length}`);
+            console.log(`==============================`);
 
-              await db
-                .ref()
-                .update(
-                  updates
-                );
+            for (const event of events.slice(0, 20)) {
 
+              const home =
+                value(event, [
+                  'home_team_name',
+                  'home_team',
+                  'home'
+                ]);
+
+              const away =
+                value(event, [
+                  'away_team_name',
+                  'away_team',
+                  'away'
+                ]);
+
+              const league =
+                value(event, [
+                  'league_name',
+                  'competition_name',
+                  'league'
+                ]);
+
+              const date =
+                value(event, [
+                  'date',
+                  'match_date',
+                  'start_time',
+                  'datetime'
+                ]);
+
+              const status =
+                value(event, [
+                  'status',
+                  'match_status'
+                ]);
 
               console.log(
-                `REMOVED: ${Object.keys(updates).length}`
-              );
-
-
-            } else {
-
-              console.log(
-                'NO OLD MATCHES'
+                `${league} | ${home} vs ${away} | ${date} | ${status}`
               );
             }
           }
 
+          (async () => {
 
-          // =====================================================
-          // MAIN SYNC
-          // =====================================================
+            console.log("================================");
+            console.log(" BZZOIRO API TEST - GOAL TV");
+            console.log("================================");
 
-          async function sync() {
+            const yesterday = getDate(-1);
+            const today = getDate(0);
+            const tomorrow = getDate(1);
 
-            console.log('');
-            console.log(
-              '======================================'
-            );
+            console.log(`\nYesterday : ${yesterday}`);
+            console.log(`Today     : ${today}`);
+            console.log(`Tomorrow  : ${tomorrow}`);
 
-            console.log(
-              'FOOTBALL SYNC START'
-            );
+            // ----------------------------
+            // أمس
+            // ----------------------------
 
-            console.log(
-              '======================================'
-            );
-
-
-            const today =
-              getBaghdadDate();
-
-
-            const yesterday =
-              addDays(
-                today,
-                -1
+            try {
+              const data = await request(
+                `/api/v2/events/?date_from=${yesterday}&date_to=${yesterday}`
               );
 
+              const events = extractEvents(data);
 
-            const tomorrow =
-              addDays(
-                today,
-                1
+              printEvents(
+                `أمس - ${yesterday}`,
+                events
               );
 
+            } catch (e) {
+              console.error("❌ فشل اختبار أمس:", e.message);
+            }
 
-            console.log(
-              `TODAY: ${today}`
-            );
+            // ----------------------------
+            // اليوم
+            // ----------------------------
 
+            try {
+              const data = await request(
+                `/api/v2/events/?date_from=${today}&date_to=${today}`
+              );
 
-            console.log(
-              `YESTERDAY: ${yesterday}`
-            );
+              const events = extractEvents(data);
 
+              printEvents(
+                `اليوم - ${today}`,
+                events
+              );
 
-            console.log(
-              `TOMORROW: ${tomorrow}`
-            );
+            } catch (e) {
+              console.error("❌ فشل اختبار اليوم:", e.message);
+            }
 
+            // ----------------------------
+            // غدًا
+            // ----------------------------
 
-            // =================================================
-            // Firebase connection test
-            // =================================================
+            try {
+              const data = await request(
+                `/api/v2/events/?date_from=${tomorrow}&date_to=${tomorrow}`
+              );
 
-            await testFirebase();
+              const events = extractEvents(data);
 
+              printEvents(
+                `غدًا - ${tomorrow}`,
+                events
+              );
 
-            // =================================================
+            } catch (e) {
+              console.error("❌ فشل اختبار غدًا:", e.message);
+            }
+
+            // ----------------------------
             // LIVE
-            // =================================================
+            // ----------------------------
 
-            const liveResult =
-              await fetchAPI(
-                `${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`
+            try {
+              const data = await request(
+                `/api/v2/events/live/`
               );
 
+              const events = extractEvents(data);
 
-            await saveFixtures(
-              liveResult,
-              'LIVE'
-            );
-
-
-            // =================================================
-            // YESTERDAY
-            // =================================================
-
-            const yesterdayResult =
-              await fetchAPI(
-                `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
+              printEvents(
+                "LIVE",
+                events
               );
 
-
-            await saveFixtures(
-              yesterdayResult,
-              'YESTERDAY'
-            );
-
-
-            // =================================================
-            // TODAY
-            // =================================================
-
-            const todayResult =
-              await fetchAPI(
-                `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
-              );
-
-
-            await saveFixtures(
-              todayResult,
-              'TODAY'
-            );
-
-
-            // =================================================
-            // TOMORROW
-            // =================================================
-
-            const tomorrowResult =
-              await fetchAPI(
-                `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
-              );
-
-
-            await saveFixtures(
-              tomorrowResult,
-              'TOMORROW'
-            );
-
-
-            // =================================================
-            // CLEANUP
-            // =================================================
-
-            await cleanupOldMatches();
-
-
-            // =================================================
-            // FINAL REPORT
-            // =================================================
-
-            console.log('');
-            console.log(
-              '======================================'
-            );
-
-            console.log(
-              'SYNC REPORT'
-            );
-
-            console.log(
-              '======================================'
-            );
-
-
-            console.log(
-              `API REQUESTS: ${stats.requests}`
-            );
-
-
-            console.log(
-              `API RECEIVED: ${stats.received}`
-            );
-
-
-            console.log(
-              `ALLOWED LEAGUES: ${stats.allowed}`
-            );
-
-
-            console.log(
-              `SAVED TO FIREBASE: ${stats.saved}`
-            );
-
-
-            console.log(
-              `SKIPPED LEAGUES: ${stats.skipped}`
-            );
-
-
-            console.log(
-              `INVALID: ${stats.invalid}`
-            );
-
-
-            console.log(
-              `FIREBASE ERRORS: ${stats.errors}`
-            );
-
-
-            console.log(
-              `REMOVED OLD: ${stats.removed}`
-            );
-
-
-            console.log(
-              '======================================'
-            );
-
-
-            // =================================================
-            // لا نعتبر العملية ناجحة إذا لم تحفظ أي مباراة
-            // =================================================
-
-            if (
-              stats.saved === 0
-            ) {
-
-              throw new Error(
-                'ZERO MATCHES SAVED TO FIREBASE'
-              );
+            } catch (e) {
+              console.error("❌ فشل اختبار LIVE:", e.message);
             }
 
+            console.log("\n================================");
+            console.log(" انتهى الاختبار");
+            console.log("================================");
 
-            if (
-              stats.errors > 0
-            ) {
-
-              throw new Error(
-                'FIREBASE SAVE ERRORS DETECTED'
-              );
-            }
-
-
-            console.log('');
-            console.log(
-              'SYNC COMPLETED SUCCESSFULLY'
-            );
-          }
-
-
-          // =====================================================
-          // START
-          // =====================================================
-
-          sync()
-            .then(
-              () => {
-
-                process.exit(
-                  0
-                );
-              }
-            )
-            .catch(
-              error => {
-
-                console.error('');
-                console.error(
-                  '======================================'
-                );
-
-                console.error(
-                  'SYNC FAILED'
-                );
-
-                console.error(
-                  error.stack ||
-                  error.message
-                );
-
-                console.error(
-                  '======================================'
-                );
-
-
-                process.exit(
-                  1
-                );
-              }
-            );
-
-          EOF
-
-
-      - name: Run Sync
-        env:
-
-          API_FOOTBALL_KEY:
-            ${{ secrets.API_FOOTBALL_KEY }}
-
-          FIREBASE_DATABASE_URL:
-            ${{ secrets.FIREBASE_DATABASE_URL }}
-
-          FIREBASE_SERVICE_ACCOUNT:
-            ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-
-        run: |
-          node sync.js
+          })();
+          NODE
