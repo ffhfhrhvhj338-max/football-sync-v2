@@ -4,12 +4,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    # كل 10 دقائق
     - cron: "*/10 * * * *"
-
-  push:
-    branches:
-      - main
 
 jobs:
   sync:
@@ -17,9 +12,9 @@ jobs:
 
     steps:
 
-      # ==========================================
+      # ============================================================
       # Node.js
-      # ==========================================
+      # ============================================================
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,9 +22,9 @@ jobs:
           node-version: 20
 
 
-      # ==========================================
+      # ============================================================
       # Bzzoiro → Firebase
-      # ==========================================
+      # ============================================================
 
       - name: Sync Football Data
         env:
@@ -39,19 +34,29 @@ jobs:
 
         run: |
 
-          node <<'NODE'
-
-          // ============================================================
-          // GOAL TV
-          // BZZOIRO → GITHUB ACTIONS → FIREBASE
-          // ============================================================
+          # مهم جدًا:
+          # تشغيل Node كـ CommonJS حتى يعمل require()
+          node --input-type=commonjs <<'NODE'
 
           const https = require("https");
           const { execSync } = require("child_process");
 
 
           // ============================================================
-          // التحقق من Secrets
+          // GOAL TV
+          // BZZOIRO → GITHUB ACTIONS → FIREBASE
+          // ============================================================
+
+          console.log("");
+          console.log("================================================");
+          console.log(" GOAL TV FOOTBALL SYNC");
+          console.log(" BZZOIRO → FIREBASE");
+          console.log("================================================");
+          console.log("");
+
+
+          // ============================================================
+          // Secrets
           // ============================================================
 
           const BZZOIRO_API_KEY =
@@ -65,6 +70,7 @@ jobs:
 
 
           if (!BZZOIRO_API_KEY) {
+
             console.error(
               "❌ BZZOIRO_API_KEY غير موجود"
             );
@@ -74,6 +80,7 @@ jobs:
 
 
           if (!FIREBASE_SERVICE_ACCOUNT) {
+
             console.error(
               "❌ FIREBASE_SERVICE_ACCOUNT غير موجود"
             );
@@ -83,6 +90,7 @@ jobs:
 
 
           if (!FIREBASE_DATABASE_URL) {
+
             console.error(
               "❌ FIREBASE_DATABASE_URL غير موجود"
             );
@@ -91,21 +99,18 @@ jobs:
           }
 
 
-          console.log("");
-          console.log("==============================================");
-          console.log(" GOAL TV FOOTBALL SYNC");
-          console.log(" BZZOIRO → FIREBASE");
-          console.log("==============================================");
-          console.log("");
+          console.log("✅ BZZOIRO_API_KEY موجود");
+          console.log("✅ FIREBASE_SERVICE_ACCOUNT موجود");
+          console.log("✅ FIREBASE_DATABASE_URL موجود");
 
 
           // ============================================================
           // تثبيت Firebase Admin
           // ============================================================
 
-          console.log(
-            "📦 Installing firebase-admin..."
-          );
+          console.log("");
+          console.log("📦 Installing firebase-admin...");
+
 
           try {
 
@@ -136,6 +141,7 @@ jobs:
 
           let serviceAccount;
 
+
           try {
 
             serviceAccount =
@@ -149,17 +155,22 @@ jobs:
               "❌ FIREBASE_SERVICE_ACCOUNT ليس JSON صالحًا"
             );
 
+            console.error(
+              error.message
+            );
+
             process.exit(1);
           }
 
 
           // ============================================================
-          // Firebase Initialization
+          // Firebase
           // ============================================================
 
           try {
 
             admin.initializeApp({
+
               credential:
                 admin.credential.cert(
                   serviceAccount
@@ -167,12 +178,13 @@ jobs:
 
               databaseURL:
                 FIREBASE_DATABASE_URL
+
             });
 
           } catch (error) {
 
             console.error(
-              "❌ فشل تشغيل Firebase:"
+              "❌ فشل تشغيل Firebase"
             );
 
             console.error(
@@ -191,8 +203,12 @@ jobs:
             db.ref("firebase");
 
 
+          console.log("");
+          console.log("✅ Firebase initialized");
+
+
           // ============================================================
-          // HTTP Request
+          // Bzzoiro Request
           // ============================================================
 
           function bzzoiroRequest(path) {
@@ -246,14 +262,15 @@ jobs:
                         "end",
                         () => {
 
+                          console.log(
+                            `Bzzoiro HTTP ${res.statusCode} - ${path}`
+                          );
+
+
                           if (
                             res.statusCode < 200 ||
                             res.statusCode >= 300
                           ) {
-
-                            console.error(
-                              `❌ Bzzoiro HTTP ${res.statusCode}`
-                            );
 
                             console.error(
                               data.substring(
@@ -261,6 +278,7 @@ jobs:
                                 2000
                               )
                             );
+
 
                             reject(
                               new Error(
@@ -274,18 +292,20 @@ jobs:
 
                           try {
 
-                            const json =
-                              JSON.parse(data);
-
-                            resolve(json);
+                            resolve(
+                              JSON.parse(
+                                data
+                              )
+                            );
 
                           } catch (error) {
 
-                            console.error(
-                              "❌ Bzzoiro أرسل JSON غير صالح"
+                            reject(
+                              new Error(
+                                "Bzzoiro returned invalid JSON"
+                              )
                             );
 
-                            reject(error);
                           }
 
                         }
@@ -314,10 +334,10 @@ jobs:
 
 
           // ============================================================
-          // استخراج نتائج الـ API
+          // استخراج المباريات
           // ============================================================
 
-          function extractResults(data) {
+          function extractEvents(data) {
 
             if (
               Array.isArray(data)
@@ -364,7 +384,7 @@ jobs:
           // تاريخ بغداد
           // ============================================================
 
-          function baghdadDate(
+          function getBaghdadDate(
             offsetDays
           ) {
 
@@ -397,24 +417,26 @@ jobs:
               );
 
 
-            let year =
-              parseInt(
+            const year =
+              Number(
                 parts.find(
                   p =>
                     p.type === "year"
                 ).value
               );
 
-            let month =
-              parseInt(
+
+            const month =
+              Number(
                 parts.find(
                   p =>
                     p.type === "month"
                 ).value
               );
 
-            let day =
-              parseInt(
+
+            const day =
+              Number(
                 parts.find(
                   p =>
                     p.type === "day"
@@ -439,56 +461,60 @@ jobs:
             );
 
 
-            return (
-              date
-                .toISOString()
-                .substring(
-                  0,
-                  10
-                )
-            );
+            return date
+              .toISOString()
+              .substring(
+                0,
+                10
+              );
 
           }
 
 
           const yesterday =
-            baghdadDate(-1);
+            getBaghdadDate(-1);
 
 
           const today =
-            baghdadDate(0);
+            getBaghdadDate(0);
 
 
           const tomorrow =
-            baghdadDate(1);
+            getBaghdadDate(1);
 
 
+          console.log("");
           console.log(
-            `📅 أمس     : ${yesterday}`
+            `🇮🇶 أمس    : ${yesterday}`
           );
 
           console.log(
-            `📅 اليوم   : ${today}`
+            `🇮🇶 اليوم  : ${today}`
           );
 
           console.log(
-            `📅 غدًا    : ${tomorrow}`
+            `🇮🇶 غدًا   : ${tomorrow}`
           );
 
 
           // ============================================================
-          // تحويل UTC → Baghdad
+          // تحويل وقت المباراة إلى بغداد
           // ============================================================
 
           function convertToBaghdad(
             isoDate
           ) {
 
-            if (!isoDate) {
+            if (
+              !isoDate
+            ) {
 
               return {
+
                 date: "",
+
                 time: ""
+
               };
 
             }
@@ -507,6 +533,7 @@ jobs:
             ) {
 
               return {
+
                 date:
                   String(
                     isoDate
@@ -516,6 +543,7 @@ jobs:
                   ),
 
                 time: ""
+
               };
 
             }
@@ -525,6 +553,7 @@ jobs:
               new Intl.DateTimeFormat(
                 "en-CA",
                 {
+
                   timeZone:
                     "Asia/Baghdad",
 
@@ -536,6 +565,7 @@ jobs:
 
                   day:
                     "2-digit"
+
                 }
               );
 
@@ -544,6 +574,7 @@ jobs:
               new Intl.DateTimeFormat(
                 "en-US",
                 {
+
                   timeZone:
                     "Asia/Baghdad",
 
@@ -555,6 +586,7 @@ jobs:
 
                   hour12:
                     true
+
                 }
               );
 
@@ -586,18 +618,18 @@ jobs:
               ).value;
 
 
-            const arabicDate =
+            const formattedDate =
               `${year}-${month}-${day}`;
 
 
-            let time =
+            let formattedTime =
               timeFormatter.format(
                 date
               );
 
 
-            time =
-              time
+            formattedTime =
+              formattedTime
                 .replace(
                   "AM",
                   "ص"
@@ -611,10 +643,10 @@ jobs:
             return {
 
               date:
-                arabicDate,
+                formattedDate,
 
               time:
-                time
+                formattedTime
 
             };
 
@@ -629,7 +661,9 @@ jobs:
             status
           ) {
 
-            if (!status) {
+            if (
+              !status
+            ) {
 
               return "notstarted";
 
@@ -639,7 +673,9 @@ jobs:
             const s =
               String(
                 status
-              ).toLowerCase();
+              )
+              .toLowerCase()
+              .trim();
 
 
             if (
@@ -685,8 +721,9 @@ jobs:
 
             if (
               s === "notstarted" ||
-              s === "upcoming" ||
-              s === "scheduled"
+              s === "not_started" ||
+              s === "scheduled" ||
+              s === "upcoming"
             ) {
 
               return "notstarted";
@@ -703,7 +740,7 @@ jobs:
           // الحالة العربية
           // ============================================================
 
-          function arabicStatus(
+          function getArabicStatus(
             status
           ) {
 
@@ -771,9 +808,13 @@ jobs:
             ) {
 
               return {
+
                 id: "",
+
                 name: "",
+
                 country: ""
+
               };
 
             }
@@ -843,11 +884,9 @@ jobs:
                 id:
                   leagueId,
 
-                name:
-                  "",
+                name: "",
 
-                country:
-                  ""
+                country: ""
 
               };
 
@@ -866,7 +905,7 @@ jobs:
 
 
           // ============================================================
-          // جلب مباريات يوم
+          // جلب مباريات يوم محدد
           // ============================================================
 
           async function getDayMatches(
@@ -875,378 +914,349 @@ jobs:
 
             console.log("");
             console.log(
-              `🔎 جلب مباريات ${date}`
+              `🔎 جلب مباريات: ${date}`
             );
 
 
-            const all =
-              [];
+            const path =
+              `/api/v2/events/?date_from=${date}&date_to=${date}`;
 
 
-            let offset =
-              0;
-
-
-            const limit =
-              200;
-
-
-            while (true) {
-
-              const path =
-                `/api/v2/events/?date_from=${date}&date_to=${date}&limit=${limit}&offset=${offset}`;
-
-
-              const data =
-                await bzzoiroRequest(
-                  path
-                );
-
-
-              const results =
-                extractResults(
-                  data
-                );
-
-
-              all.push(
-                ...results
+            const data =
+              await bzzoiroRequest(
+                path
               );
 
 
-              const total =
-                Number(
-                  data.count ??
-                  results.length
-                );
-
-
-              console.log(
-                `   ${results.length} مباراة | ${all.length}/${total}`
+            const events =
+              extractEvents(
+                data
               );
 
 
-              if (
-                results.length === 0 ||
-                all.length >= total ||
-                results.length < limit
-              ) {
-
-                break;
-
-              }
+            console.log(
+              `✅ ${date}: ${events.length} مباراة`
+            );
 
 
-              offset +=
-                limit;
-
-            }
-
-
-            return all;
+            return events;
 
           }
 
 
           // ============================================================
-          // جمع المباريات
+          // جميع المباريات
           // ============================================================
 
           const matchesMap =
             new Map();
 
 
-          async function addMatches(
-            matches,
+          // ============================================================
+          // إضافة مباراة
+          // ============================================================
+
+          async function addMatch(
+            event,
             dayTitle
           ) {
 
-            for (
-              const event of matches
+            if (
+              !event ||
+              !event.id
             ) {
 
-              if (
-                !event ||
-                !event.id
-              ) {
-
-                continue;
-
-              }
-
-
-              const id =
-                String(
-                  event.id
-                );
-
-
-              const converted =
-                convertToBaghdad(
-                  event.event_date
-                );
-
-
-              const league =
-                await getLeague(
-                  event.league_id
-                );
-
-
-              const homeTeamId =
-                event.home_team_id ??
-                "";
-
-
-              const awayTeamId =
-                event.away_team_id ??
-                "";
-
-
-              const homeTeamLogo =
-                homeTeamId
-                  ? `https://sports.bzzoiro.com/img/team/${homeTeamId}/`
-                  : "";
-
-
-              const awayTeamLogo =
-                awayTeamId
-                  ? `https://sports.bzzoiro.com/img/team/${awayTeamId}/`
-                  : "";
-
-
-              const leagueLogo =
-                event.league_id
-                  ? `https://sports.bzzoiro.com/img/league/${event.league_id}/`
-                  : "";
-
-
-              const status =
-                normalizeStatus(
-                  event.status
-                );
-
-
-              const homeScore =
-                event.home_score ??
-                null;
-
-
-              const awayScore =
-                event.away_score ??
-                null;
-
-
-              let scoreText =
-                "-";
-
-
-              if (
-                homeScore !== null &&
-                awayScore !== null
-              ) {
-
-                scoreText =
-                  `${homeScore} - ${awayScore}`;
-
-              }
-
-
-              // ========================================================
-              // بيانات Firebase
-              // ========================================================
-
-              const match = {
-
-                // ------------------------------------
-                // معلومات أساسية
-                // ------------------------------------
-
-                match_id:
-                  id,
-
-                item_type:
-                  "match",
-
-                event_id:
-                  id,
-
-
-                // ------------------------------------
-                // التاريخ والوقت
-                // ------------------------------------
-
-                match_date:
-                  converted.date,
-
-                match_day:
-                  dayTitle,
-
-                match_time:
-                  converted.time,
-
-                event_date:
-                  event.event_date ??
-                  "",
-
-
-                // ------------------------------------
-                // الحالة
-                // ------------------------------------
-
-                match_status:
-                  status,
-
-                status:
-                  status,
-
-                status_text:
-                  arabicStatus(
-                    status
-                  ),
-
-                current_minute:
-                  event.current_minute ??
-                  null,
-
-
-                // ------------------------------------
-                // النتيجة
-                // ------------------------------------
-
-                home_score:
-                  homeScore,
-
-                away_score:
-                  awayScore,
-
-                home_score_ht:
-                  event.home_score_ht ??
-                  null,
-
-                away_score_ht:
-                  event.away_score_ht ??
-                  null,
-
-                match_score:
-                  scoreText,
-
-
-                // ------------------------------------
-                // الدوري
-                // ------------------------------------
-
-                league_id:
-                  event.league_id ??
-                  "",
-
-                league_name:
-                  league.name ??
-                  "",
-
-                league_country:
-                  league.country ??
-                  "",
-
-                league_logo:
-                  leagueLogo,
-
-
-                // ------------------------------------
-                // الفريق المضيف
-                // ------------------------------------
-
-                home_team_id:
-                  homeTeamId,
-
-                home_team_name:
-                  event.home_team ??
-                  "",
-
-                home_team_logo:
-                  homeTeamLogo,
-
-
-                // ------------------------------------
-                // الفريق الضيف
-                // ------------------------------------
-
-                away_team_id:
-                  awayTeamId,
-
-                away_team_name:
-                  event.away_team ??
-                  "",
-
-                away_team_logo:
-                  awayTeamLogo,
-
-
-                // ------------------------------------
-                // معلومات إضافية
-                // ------------------------------------
-
-                round_number:
-                  event.round_number ??
-                  null,
-
-                round_name:
-                  event.round_name ??
-                  "",
-
-                round_label:
-                  event.round_label ??
-                  "",
-
-                stage:
-                  event.stage ??
-                  "",
-
-                stage_name:
-                  event.stage_name ??
-                  "",
-
-                venue_id:
-                  event.venue_id ??
-                  null,
-
-                referee_id:
-                  event.referee_id ??
-                  null,
-
-                live_websocket:
-                  event.live_websocket ??
-                  false,
-
-
-                // ------------------------------------
-                // حقول العرض في HomeActivity
-                // ------------------------------------
-
-                show_day_header:
-                  false,
-
-                show_league_header:
-                  false,
-
-                day_title:
-                  dayTitle
-
-              };
-
-
-              matchesMap.set(
-                id,
-                match
-              );
+              return;
 
             }
+
+
+            const matchId =
+              String(
+                event.id
+              );
+
+
+            const converted =
+              convertToBaghdad(
+                event.event_date
+              );
+
+
+            // ----------------------------------------
+            // الدوري
+            // ----------------------------------------
+
+            const league =
+              await getLeague(
+                event.league_id
+              );
+
+
+            // ----------------------------------------
+            // الفرق
+            // ----------------------------------------
+
+            const homeTeamId =
+              event.home_team_id ??
+              "";
+
+
+            const awayTeamId =
+              event.away_team_id ??
+              "";
+
+
+            // ----------------------------------------
+            // الشعارات
+            // ----------------------------------------
+
+            const homeTeamLogo =
+              homeTeamId
+                ? `https://sports.bzzoiro.com/img/team/${homeTeamId}/`
+                : "";
+
+
+            const awayTeamLogo =
+              awayTeamId
+                ? `https://sports.bzzoiro.com/img/team/${awayTeamId}/`
+                : "";
+
+
+            const leagueLogo =
+              event.league_id
+                ? `https://sports.bzzoiro.com/img/league/${event.league_id}/`
+                : "";
+
+
+            // ----------------------------------------
+            // الحالة
+            // ----------------------------------------
+
+            const status =
+              normalizeStatus(
+                event.status
+              );
+
+
+            // ----------------------------------------
+            // النتيجة
+            // ----------------------------------------
+
+            const homeScore =
+              event.home_score ??
+              null;
+
+
+            const awayScore =
+              event.away_score ??
+              null;
+
+
+            let score =
+              "-";
+
+
+            if (
+              homeScore !== null &&
+              awayScore !== null
+            ) {
+
+              score =
+                `${homeScore} - ${awayScore}`;
+
+            }
+
+
+            // ----------------------------------------
+            // المباراة
+            // ----------------------------------------
+
+            const match = {
+
+              match_id:
+                matchId,
+
+              event_id:
+                matchId,
+
+              item_type:
+                "match",
+
+
+              // ==============================
+              // التاريخ والوقت
+              // ==============================
+
+              match_date:
+                converted.date,
+
+              match_day:
+                dayTitle,
+
+              day_title:
+                dayTitle,
+
+              match_time:
+                converted.time,
+
+              event_date:
+                event.event_date ??
+                "",
+
+
+              // ==============================
+              // الحالة
+              // ==============================
+
+              match_status:
+                status,
+
+              status:
+                status,
+
+              status_text:
+                getArabicStatus(
+                  status
+                ),
+
+              current_minute:
+                event.current_minute ??
+                null,
+
+
+              // ==============================
+              // النتيجة
+              // ==============================
+
+              home_score:
+                homeScore,
+
+              away_score:
+                awayScore,
+
+              home_score_ht:
+                event.home_score_ht ??
+                null,
+
+              away_score_ht:
+                event.away_score_ht ??
+                null,
+
+              match_score:
+                score,
+
+
+              // ==============================
+              // الدوري
+              // ==============================
+
+              league_id:
+                event.league_id ??
+                "",
+
+              league_name:
+                league.name ??
+                "",
+
+              league_country:
+                league.country ??
+                "",
+
+              league_logo:
+                leagueLogo,
+
+
+              // ==============================
+              // صاحب الأرض
+              // ==============================
+
+              home_team_id:
+                homeTeamId,
+
+              home_team_name:
+                event.home_team ??
+                "",
+
+              home_team_logo:
+                homeTeamLogo,
+
+
+              // ==============================
+              // الضيف
+              // ==============================
+
+              away_team_id:
+                awayTeamId,
+
+              away_team_name:
+                event.away_team ??
+                "",
+
+              away_team_logo:
+                awayTeamLogo,
+
+
+              // ==============================
+              // معلومات إضافية
+              // ==============================
+
+              round_number:
+                event.round_number ??
+                null,
+
+              round_name:
+                event.round_name ??
+                "",
+
+              round_label:
+                event.round_label ??
+                "",
+
+              stage:
+                event.stage ??
+                "",
+
+              stage_name:
+                event.stage_name ??
+                "",
+
+              venue_id:
+                event.venue_id ??
+                null,
+
+              referee_id:
+                event.referee_id ??
+                null,
+
+              live_websocket:
+                event.live_websocket ??
+                false,
+
+
+              // ==============================
+              // عناصر HomeActivity
+              // ==============================
+
+              show_day_header:
+                false,
+
+              show_league_header:
+                false
+
+            };
+
+
+            matchesMap.set(
+              matchId,
+              match
+            );
 
           }
 
 
           // ============================================================
-          // جلب أمس + اليوم + غدًا
+          // جلب أمس
           // ============================================================
 
           const yesterdayMatches =
@@ -1255,11 +1265,43 @@ jobs:
             );
 
 
+          for (
+            const event of yesterdayMatches
+          ) {
+
+            await addMatch(
+              event,
+              "أمس"
+            );
+
+          }
+
+
+          // ============================================================
+          // جلب اليوم
+          // ============================================================
+
           const todayMatches =
             await getDayMatches(
               today
             );
 
+
+          for (
+            const event of todayMatches
+          ) {
+
+            await addMatch(
+              event,
+              "اليوم"
+            );
+
+          }
+
+
+          // ============================================================
+          // جلب غدًا
+          // ============================================================
 
           const tomorrowMatches =
             await getDayMatches(
@@ -1267,22 +1309,16 @@ jobs:
             );
 
 
-          await addMatches(
-            yesterdayMatches,
-            "أمس"
-          );
+          for (
+            const event of tomorrowMatches
+          ) {
 
+            await addMatch(
+              event,
+              "غدًا"
+            );
 
-          await addMatches(
-            todayMatches,
-            "اليوم"
-          );
-
-
-          await addMatches(
-            tomorrowMatches,
-            "غدًا"
-          );
+          }
 
 
           // ============================================================
@@ -1291,7 +1327,7 @@ jobs:
 
           console.log("");
           console.log(
-            "🔴 جلب المباريات المباشرة..."
+            "🔴 فحص المباريات LIVE..."
           );
 
 
@@ -1304,7 +1340,7 @@ jobs:
 
 
             const liveMatches =
-              extractResults(
+              extractEvents(
                 liveData
               );
 
@@ -1314,15 +1350,21 @@ jobs:
             );
 
 
-            await addMatches(
-              liveMatches,
-              "اليوم"
-            );
+            for (
+              const event of liveMatches
+            ) {
+
+              await addMatch(
+                event,
+                "اليوم"
+              );
+
+            }
 
           } catch (error) {
 
             console.warn(
-              "⚠️ تعذر جلب LIVE:"
+              "⚠️ تعذر فحص LIVE"
             );
 
             console.warn(
@@ -1333,28 +1375,28 @@ jobs:
 
 
           // ============================================================
-          // ترتيب المباريات
-          // أمس → اليوم → غدًا
+          // تحويل Map إلى Array
           // ============================================================
-
-          const dayOrder = {
-
-            "أمس":
-              1,
-
-            "اليوم":
-              2,
-
-            "غدًا":
-              3
-
-          };
-
 
           const matches =
             Array.from(
               matchesMap.values()
             );
+
+
+          // ============================================================
+          // ترتيب الأيام
+          // ============================================================
+
+          const dayOrder = {
+
+            "أمس": 1,
+
+            "اليوم": 2,
+
+            "غدًا": 3
+
+          };
 
 
           matches.sort(
@@ -1363,13 +1405,15 @@ jobs:
               const dayA =
                 dayOrder[
                   a.day_title
-                ] || 99;
+                ] ||
+                99;
 
 
               const dayB =
                 dayOrder[
                   b.day_title
-                ] || 99;
+                ] ||
+                99;
 
 
               if (
@@ -1384,16 +1428,16 @@ jobs:
               }
 
 
-              const dateA =
+              const timeA =
                 `${a.match_date} ${a.match_time}`;
 
 
-              const dateB =
+              const timeB =
                 `${b.match_date} ${b.match_time}`;
 
 
-              return dateA.localeCompare(
-                dateB
+              return timeA.localeCompare(
+                timeB
               );
 
             }
@@ -1401,7 +1445,7 @@ jobs:
 
 
           // ============================================================
-          // إضافة Headers
+          // Headers
           // ============================================================
 
           let previousDay =
@@ -1416,31 +1460,27 @@ jobs:
             const match of matches
           ) {
 
-            const day =
-              match.day_title;
-
-
-            const leagueKey =
-              `${match.league_id}_${match.league_name}`;
-
-
             if (
-              day !== previousDay
+              match.day_title !==
+              previousDay
             ) {
 
               match.show_day_header =
                 true;
 
-              match.day_title =
-                day;
 
               previousDay =
-                day;
+                match.day_title;
+
 
               previousLeague =
                 "";
 
             }
+
+
+            const leagueKey =
+              `${match.league_id}_${match.league_name}`;
 
 
             if (
@@ -1451,6 +1491,7 @@ jobs:
               match.show_league_header =
                 true;
 
+
               previousLeague =
                 leagueKey;
 
@@ -1460,37 +1501,46 @@ jobs:
 
 
           // ============================================================
-          // تجهيز Firebase
+          // إحصائيات
           // ============================================================
 
           console.log("");
           console.log(
-            "=============================================="
+            "================================================"
           );
 
           console.log(
-            `📊 إجمالي المباريات: ${matches.length}`
+            "📊 SYNC SUMMARY"
           );
 
           console.log(
-            `🏆 الدوريات المستخدمة: ${leagueCache.size}`
+            "================================================"
           );
 
           console.log(
-            "=============================================="
+            `📅 أمس    : ${yesterdayMatches.length}`
+          );
+
+          console.log(
+            `📅 اليوم  : ${todayMatches.length}`
+          );
+
+          console.log(
+            `📅 غدًا   : ${tomorrowMatches.length}`
+          );
+
+          console.log(
+            `⚽ إجمالي : ${matches.length}`
+          );
+
+          console.log(
+            `🏆 الدوريات: ${leagueCache.size}`
           );
 
 
-          if (
-            matches.length === 0
-          ) {
-
-            console.warn(
-              "⚠️ لم يتم العثور على أي مباراة."
-            );
-
-          }
-
+          // ============================================================
+          // تجهيز Firebase
+          // ============================================================
 
           const firebaseData =
             {};
@@ -1509,32 +1559,57 @@ jobs:
 
 
           // ============================================================
-          // قراءة البيانات القديمة
+          // قراءة Firebase
           // ============================================================
 
           console.log("");
           console.log(
-            "📥 قراءة Firebase الحالية..."
+            "📥 قراءة بيانات Firebase..."
           );
 
 
-          const snapshot =
-            await firebaseRef.once(
-              "value"
+          let oldData =
+            {};
+
+
+          try {
+
+            const snapshot =
+              await firebaseRef.once(
+                "value"
+              );
+
+
+            oldData =
+              snapshot.val() ||
+              {};
+
+          } catch (error) {
+
+            console.error(
+              "❌ فشل قراءة Firebase"
             );
 
+            console.error(
+              error.message
+            );
 
-          const oldData =
-            snapshot.val() || {};
+            process.exit(1);
+
+          }
 
 
           // ============================================================
-          // حذف المباريات القديمة فقط
+          // تجهيز Updates
           // ============================================================
 
           const updates =
             {};
 
+
+          // ----------------------------------------
+          // حذف المباريات القديمة
+          // ----------------------------------------
 
           for (
             const key of Object.keys(
@@ -1569,9 +1644,9 @@ jobs:
           }
 
 
-          // ============================================================
-          // إضافة / تحديث المباريات
-          // ============================================================
+          // ----------------------------------------
+          // إضافة وتحديث المباريات
+          // ----------------------------------------
 
           for (
             const match of matches
@@ -1586,66 +1661,51 @@ jobs:
 
 
           // ============================================================
-          // الكتابة إلى Firebase
+          // Firebase Update
           // ============================================================
 
           console.log("");
           console.log(
-            "📤 تحديث Firebase..."
+            "📤 إرسال البيانات إلى Firebase..."
           );
 
 
-          await firebaseRef.update(
-            updates
-          );
+          try {
+
+            await firebaseRef.update(
+              updates
+            );
+
+          } catch (error) {
+
+            console.error(
+              "❌ فشل تحديث Firebase"
+            );
+
+            console.error(
+              error.message
+            );
+
+            process.exit(1);
+
+          }
 
 
           // ============================================================
-          // النتيجة
-          // ============================================================
-
-          console.log("");
-          console.log(
-            "=============================================="
-          );
-
-          console.log(
-            "✅ تمت المزامنة بنجاح"
-          );
-
-          console.log(
-            `📅 أمس     : ${yesterdayMatches.length}`
-          );
-
-          console.log(
-            `📅 اليوم   : ${todayMatches.length}`
-          );
-
-          console.log(
-            `📅 غدًا    : ${tomorrowMatches.length}`
-          );
-
-          console.log(
-            `🔴 LIVE    : تم الفحص`
-          );
-
-          console.log(
-            `🔥 Firebase : ${matches.length} مباراة`
-          );
-
-          console.log(
-            "=============================================="
-          );
-
-
-          // ============================================================
-          // عرض بعض المباريات في Logs
+          // عرض أول 10 مباريات
           // ============================================================
 
           console.log("");
+          console.log(
+            "================================================"
+          );
 
           console.log(
             "📋 أول 10 مباريات:"
+          );
+
+          console.log(
+            "================================================"
           );
 
 
@@ -1657,7 +1717,8 @@ jobs:
           ) {
 
             console.log(
-              `${match.match_date} ${match.match_time} | ` +
+              `${match.match_date} | ` +
+              `${match.match_time} | ` +
               `${match.home_team_name} vs ${match.away_team_name} | ` +
               `${match.league_name} | ` +
               `${match.status_text}`
@@ -1666,9 +1727,33 @@ jobs:
           }
 
 
+          // ============================================================
+          // نجاح
+          // ============================================================
+
           console.log("");
           console.log(
-            "🏁 انتهى Goal TV Sync"
+            "================================================"
+          );
+
+          console.log(
+            "✅ تمت المزامنة بنجاح"
+          );
+
+          console.log(
+            "✅ Bzzoiro يعمل"
+          );
+
+          console.log(
+            "✅ Firebase يعمل"
+          );
+
+          console.log(
+            "✅ Goal TV data جاهزة"
+          );
+
+          console.log(
+            "================================================"
           );
 
 
@@ -1676,9 +1761,18 @@ jobs:
           // إغلاق Firebase
           // ============================================================
 
-          await admin
-            .app()
-            .delete();
+          try {
 
+            await admin
+              .app()
+              .delete();
+
+          } catch (error) {
+
+            console.warn(
+              "⚠️ تعذر إغلاق Firebase"
+            );
+
+          }
 
           NODE
