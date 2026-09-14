@@ -1,1100 +1,1275 @@
-const axios = require('axios');
-const admin = require('firebase-admin');
+name: Football API Sync
 
+on:
+  workflow_dispatch:
 
-// =====================================================
-// إعدادات
-// =====================================================
+  schedule:
+    - cron: "*/5 * * * *"
 
-const API_BASE = 'https://v3.football.api-sports.io';
+jobs:
 
-const TIMEZONE = 'Asia/Baghdad';
+  sync:
 
-const TOP_LEAGUES = new Set([
-    1,
-    2,
-    3,
-    4,
-    9,
-    11,
-    15,
-    39,
-    61,
-    78,
-    135,
-    140,
-    307,
-    848
-]);
+    runs-on: ubuntu-latest
 
-const LIVE_STATUSES = [
-    '1H',
-    'HT',
-    '2H',
-    'ET',
-    'P',
-    'LIVE'
-];
+    steps:
 
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-// =====================================================
-// التحقق من Secrets
-// =====================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-console.log('');
-console.log('======================================');
-console.log('CHECKING GITHUB SECRETS');
-console.log('======================================');
+      - name: Install Dependencies
+        run: |
+          npm init -y
+          npm install axios firebase-admin
 
-if (!process.env.API_FOOTBALL_KEY) {
-    throw new Error('API_FOOTBALL_KEY is missing');
-}
+      - name: Create Sync Script
+        run: |
 
-if (!process.env.FIREBASE_DATABASE_URL) {
-    throw new Error('FIREBASE_DATABASE_URL is missing');
-}
+          cat << 'EOF' > sync.js
 
-if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT is missing');
-}
+          const axios = require('axios');
+          const admin = require('firebase-admin');
 
-console.log('API_FOOTBALL_KEY: OK');
-console.log('FIREBASE_DATABASE_URL: OK');
-console.log('FIREBASE_SERVICE_ACCOUNT: OK');
 
+          // =====================================================
+          // SETTINGS
+          // =====================================================
 
-// =====================================================
-// Firebase
-// =====================================================
+          const API_BASE =
+            'https://v3.football.api-sports.io';
 
-let serviceAccount;
+          const TIMEZONE =
+            'Asia/Baghdad';
 
-try {
 
-    serviceAccount =
-        JSON.parse(
-            process.env.FIREBASE_SERVICE_ACCOUNT
-        );
+          const TOP_LEAGUES = new Set([
+            1,
+            2,
+            3,
+            4,
+            9,
+            11,
+            15,
+            39,
+            61,
+            78,
+            135,
+            140,
+            307,
+            848
+          ]);
 
-} catch (error) {
 
-    throw new Error(
-        'FIREBASE_SERVICE_ACCOUNT is not valid JSON'
-    );
-}
+          const LIVE_STATUSES = [
+            '1H',
+            'HT',
+            '2H',
+            'ET',
+            'P',
+            'LIVE'
+          ];
 
 
-admin.initializeApp({
+          // =====================================================
+          // CHECK SECRETS
+          // =====================================================
 
-    credential:
-        admin.credential.cert(
-            serviceAccount
-        ),
+          console.log('');
+          console.log('======================================');
+          console.log('CHECK SECRETS');
+          console.log('======================================');
 
-    databaseURL:
-        process.env.FIREBASE_DATABASE_URL
 
-});
+          if (!process.env.API_FOOTBALL_KEY) {
+            throw new Error(
+              'API_FOOTBALL_KEY is missing'
+            );
+          }
 
 
-const db =
-    admin.database();
+          if (!process.env.FIREBASE_DATABASE_URL) {
+            throw new Error(
+              'FIREBASE_DATABASE_URL is missing'
+            );
+          }
 
 
-console.log('Firebase Admin initialized');
+          if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+            throw new Error(
+              'FIREBASE_SERVICE_ACCOUNT is missing'
+            );
+          }
 
 
-// =====================================================
-// API Headers
-// =====================================================
+          console.log(
+            'API_FOOTBALL_KEY: OK'
+          );
 
-const headers = {
 
-    'x-apisports-key':
-        process.env.API_FOOTBALL_KEY,
+          console.log(
+            'FIREBASE_DATABASE_URL: OK'
+          );
 
-    'Accept':
-        'application/json'
 
-};
+          console.log(
+            'FIREBASE_SERVICE_ACCOUNT: OK'
+          );
 
 
-// =====================================================
-// الإحصائيات
-// =====================================================
+          // =====================================================
+          // FIREBASE
+          // =====================================================
 
-const stats = {
+          let serviceAccount;
 
-    apiRequests: 0,
 
-    apiReceived: 0,
+          try {
 
-    allowed: 0,
+            serviceAccount =
+              JSON.parse(
+                process.env.FIREBASE_SERVICE_ACCOUNT
+              );
 
-    saved: 0,
+          } catch (error) {
 
-    saveErrors: 0,
+            throw new Error(
+              'FIREBASE_SERVICE_ACCOUNT is not valid JSON'
+            );
+          }
 
-    skippedLeagues: 0,
 
-    invalid: 0,
+          admin.initializeApp({
 
-    removed: 0
+            credential:
+              admin.credential.cert(
+                serviceAccount
+              ),
 
-};
+            databaseURL:
+              process.env.FIREBASE_DATABASE_URL
 
+          });
 
-// =====================================================
-// تاريخ بغداد
-// =====================================================
 
-function getBaghdadDate() {
+          const db =
+            admin.database();
 
-    const formatter =
-        new Intl.DateTimeFormat(
-            'en-CA',
-            {
-                timeZone: TIMEZONE,
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            }
-        );
 
-    return formatter.format(
-        new Date()
-    );
-}
+          console.log(
+            'Firebase Admin initialized'
+          );
 
 
-// =====================================================
-// إضافة أيام
-// =====================================================
+          // =====================================================
+          // API HEADERS
+          // =====================================================
 
-function addDays(
-    dateString,
-    days
-) {
+          const headers = {
 
-    const parts =
-        dateString.split('-');
+            'x-apisports-key':
+              process.env.API_FOOTBALL_KEY,
 
-    const date =
-        new Date(
-            Date.UTC(
-                Number(parts[0]),
-                Number(parts[1]) - 1,
-                Number(parts[2])
-            )
-        );
+            'Accept':
+              'application/json'
 
-    date.setUTCDate(
-        date.getUTCDate() + days
-    );
+          };
 
-    return date
-        .toISOString()
-        .substring(0, 10);
-}
 
+          // =====================================================
+          // STATISTICS
+          // =====================================================
 
-// =====================================================
-// تاريخ المباراة بتوقيت بغداد
-// =====================================================
+          const stats = {
 
-function getMatchBaghdadDate(
-    timestamp
-) {
+            requests: 0,
 
-    const ts =
-        Number(timestamp);
+            received: 0,
 
-    if (
-        !Number.isFinite(ts) ||
-        ts <= 0
-    ) {
-        return '';
-    }
+            allowed: 0,
 
-    const formatter =
-        new Intl.DateTimeFormat(
-            'en-CA',
-            {
-                timeZone: TIMEZONE,
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            }
-        );
+            saved: 0,
 
-    return formatter.format(
-        new Date(ts * 1000)
-    );
-}
+            skipped: 0,
 
+            invalid: 0,
 
-// =====================================================
-// API Request
-// =====================================================
+            errors: 0,
 
-async function fetchAPI(
-    url
-) {
+            removed: 0
 
-    console.log('');
-    console.log('--------------------------------------');
-    console.log('API REQUEST');
-    console.log(url);
-    console.log('--------------------------------------');
+          };
 
-    stats.apiRequests++;
 
-    try {
+          // =====================================================
+          // BAGHDAD DATE
+          // =====================================================
 
-        const response =
-            await axios.get(
-                url,
+          function getBaghdadDate() {
+
+            const formatter =
+              new Intl.DateTimeFormat(
+                'en-CA',
                 {
-                    headers: headers,
-                    timeout: 30000
+                  timeZone:
+                    TIMEZONE,
+
+                  year:
+                    'numeric',
+
+                  month:
+                    '2-digit',
+
+                  day:
+                    '2-digit'
                 }
+              );
+
+
+            return formatter.format(
+              new Date()
             );
+          }
 
 
-        if (
-            !response.data
-        ) {
+          // =====================================================
+          // ADD DAYS
+          // =====================================================
 
-            throw new Error(
-                'API returned empty response'
-            );
-        }
+          function addDays(
+            dateString,
+            days
+          ) {
+
+            const parts =
+              dateString.split('-');
 
 
-        if (
-            response.data.errors &&
-            Object.keys(
-                response.data.errors
-            ).length > 0
-        ) {
-
-            throw new Error(
-                'API errors: ' +
-                JSON.stringify(
-                    response.data.errors
+            const date =
+              new Date(
+                Date.UTC(
+                  Number(parts[0]),
+                  Number(parts[1]) - 1,
+                  Number(parts[2])
                 )
-            );
-        }
+              );
 
 
-        const responseList =
-            Array.isArray(
-                response.data.response
-            )
-                ? response.data.response
-                : [];
-
-
-        console.log(
-            `API RECEIVED: ${responseList.length}`
-        );
-
-
-        stats.apiReceived +=
-            responseList.length;
-
-
-        return {
-
-            data:
-                response.data,
-
-            responseTime:
-                Date.now()
-
-        };
-
-
-    } catch (error) {
-
-        console.error('');
-        console.error('API REQUEST FAILED');
-        console.error(error.message);
-
-
-        if (
-            error.response &&
-            error.response.data
-        ) {
-
-            console.error(
-                JSON.stringify(
-                    error.response.data
-                )
-            );
-        }
-
-
-        throw error;
-    }
-}
-
-
-// =====================================================
-// الدوري المسموح
-// =====================================================
-
-function allowedLeague(
-    item
-) {
-
-    if (
-        !item ||
-        !item.league ||
-        item.league.id == null
-    ) {
-
-        return false;
-    }
-
-
-    const leagueId =
-        Number(
-            item.league.id
-        );
-
-
-    return TOP_LEAGUES.has(
-        leagueId
-    );
-}
-
-
-// =====================================================
-// تصحيح LIVE القديمة
-// =====================================================
-
-function normalizeStatus(
-    item
-) {
-
-    if (
-        !item ||
-        !item.fixture ||
-        !item.fixture.status
-    ) {
-
-        return;
-    }
-
-
-    let status =
-        String(
-            item.fixture.status.short || ''
-        ).toUpperCase();
-
-
-    const timestamp =
-        Number(
-            item.fixture.timestamp
-        );
-
-
-    if (
-        LIVE_STATUSES.includes(status) &&
-        timestamp > 0
-    ) {
-
-        const minutesSinceStart =
-            Math.floor(
-                (
-                    Math.floor(Date.now() / 1000) -
-                    timestamp
-                ) / 60
+            date.setUTCDate(
+              date.getUTCDate() + days
             );
 
 
-        if (
-            minutesSinceStart >= 130
-        ) {
+            return date
+              .toISOString()
+              .substring(0, 10);
+          }
+
+
+          // =====================================================
+          // MATCH DATE BAGHDAD
+          // =====================================================
+
+          function getMatchBaghdadDate(
+            timestamp
+          ) {
+
+            const ts =
+              Number(timestamp);
+
+
+            if (
+              !Number.isFinite(ts) ||
+              ts <= 0
+            ) {
+
+              return '';
+
+            }
+
+
+            const formatter =
+              new Intl.DateTimeFormat(
+                'en-CA',
+                {
+                  timeZone:
+                    TIMEZONE,
+
+                  year:
+                    'numeric',
+
+                  month:
+                    '2-digit',
+
+                  day:
+                    '2-digit'
+                }
+              );
+
+
+            return formatter.format(
+              new Date(ts * 1000)
+            );
+          }
+
+
+          // =====================================================
+          // API REQUEST
+          // =====================================================
+
+          async function fetchAPI(
+            url
+          ) {
+
+            console.log('');
+            console.log(
+              '--------------------------------------'
+            );
 
             console.log(
-                `STALE LIVE -> FT | ${item.fixture.id}`
+              'API REQUEST:'
+            );
+
+            console.log(
+              url
+            );
+
+            console.log(
+              '--------------------------------------'
             );
 
 
-            status = 'FT';
+            stats.requests++;
+
+
+            try {
+
+              const response =
+                await axios.get(
+                  url,
+                  {
+                    headers:
+                      headers,
+
+                    timeout:
+                      30000
+                  }
+                );
+
+
+              if (
+                !response.data
+              ) {
+
+                throw new Error(
+                  'Empty API response'
+                );
+              }
+
+
+              if (
+                response.data.errors &&
+                Object.keys(
+                  response.data.errors
+                ).length > 0
+              ) {
+
+                throw new Error(
+                  'API ERROR: ' +
+                  JSON.stringify(
+                    response.data.errors
+                  )
+                );
+              }
+
+
+              const list =
+                Array.isArray(
+                  response.data.response
+                )
+                  ? response.data.response
+                  : [];
+
+
+              console.log(
+                `API RECEIVED: ${list.length}`
+              );
+
+
+              stats.received +=
+                list.length;
+
+
+              return {
+
+                data:
+                  response.data
+
+              };
+
+
+            } catch (error) {
+
+              console.error('');
+              console.error(
+                'API REQUEST FAILED'
+              );
+
+              console.error(
+                error.message
+              );
+
+
+              if (
+                error.response &&
+                error.response.data
+              ) {
+
+                console.error(
+                  JSON.stringify(
+                    error.response.data
+                  )
+                );
+              }
+
+
+              throw error;
+            }
+          }
+
+
+          // =====================================================
+          // CHECK LEAGUE
+          // =====================================================
+
+          function allowedLeague(
+            item
+          ) {
+
+            if (
+              !item ||
+              !item.league ||
+              item.league.id == null
+            ) {
+
+              return false;
+            }
+
+
+            const id =
+              Number(
+                item.league.id
+              );
+
+
+            return TOP_LEAGUES.has(id);
+          }
+
+
+          // =====================================================
+          // NORMALIZE STATUS
+          // =====================================================
+
+          function normalizeStatus(
+            item
+          ) {
+
+            if (
+              !item ||
+              !item.fixture
+            ) {
+
+              return;
+            }
+
+
+            if (
+              !item.fixture.status
+            ) {
+
+              item.fixture.status = {};
+            }
+
+
+            let status =
+              String(
+                item.fixture.status.short || ''
+              ).toUpperCase();
+
+
+            const timestamp =
+              Number(
+                item.fixture.timestamp
+              );
+
+
+            if (
+              LIVE_STATUSES.includes(status) &&
+              timestamp > 0
+            ) {
+
+              const minutes =
+                Math.floor(
+                  (
+                    Math.floor(
+                      Date.now() / 1000
+                    ) -
+                    timestamp
+                  ) / 60
+                );
+
+
+              console.log(
+                `STATUS | ${item.fixture.id} | ${status} | ${minutes} minutes`
+              );
+
+
+              if (
+                minutes >= 130
+              ) {
+
+                console.log(
+                  `STALE LIVE -> FT | ${item.fixture.id}`
+                );
+
+
+                status =
+                  'FT';
+
+
+                item.fixture.status.short =
+                  'FT';
+
+
+                item.fixture.status.long =
+                  'Match Finished';
+
+
+                item.fixture.status.elapsed =
+                  90;
+              }
+            }
 
 
             item.fixture.status.short =
-                'FT';
-
-            item.fixture.status.long =
-                'Match Finished';
-
-            item.fixture.status.elapsed =
-                90;
-        }
-    }
+              status;
+          }
 
 
-    item.fixture.status.short =
-        status;
-}
+          // =====================================================
+          // SAVE FIXTURE
+          // =====================================================
 
-
-// =====================================================
-// حفظ مباراة
-// =====================================================
-
-async function saveFixture(
-    item
-) {
-
-    if (
-        !item ||
-        !item.fixture ||
-        !item.fixture.id
-    ) {
-
-        stats.invalid++;
-
-        return;
-    }
-
-
-    const fixtureId =
-        String(
-            item.fixture.id
-        );
-
-
-    // -----------------------------------------
-    // فحص الدوري
-    // -----------------------------------------
-
-    if (
-        !allowedLeague(item)
-    ) {
-
-        stats.skippedLeagues++;
-
-        return;
-    }
-
-
-    stats.allowed++;
-
-
-    // -----------------------------------------
-    // تصحيح الحالة
-    // -----------------------------------------
-
-    normalizeStatus(
-        item
-    );
-
-
-    const matchDate =
-        getMatchBaghdadDate(
-            item.fixture.timestamp
-        );
-
-
-    const status =
-        item.fixture.status &&
-        item.fixture.status.short
-            ? String(
-                item.fixture.status.short
-            ).toUpperCase()
-            : '';
-
-
-    const elapsed =
-        item.fixture.status &&
-        item.fixture.status.elapsed != null
-            ? item.fixture.status.elapsed
-            : '';
-
-
-    console.log(
-        `SAVE -> ID=${fixtureId}` +
-        ` | DATE=${matchDate}` +
-        ` | STATUS=${status}` +
-        ` | ELAPSED=${elapsed}`
-    );
-
-
-    try {
-
-        await db
-            .ref(
-                `matches/${fixtureId}`
-            )
-            .set(
-                item
-            );
-
-
-        stats.saved++;
-
-
-        console.log(
-            `FIREBASE SAVED -> matches/${fixtureId}`
-        );
-
-
-    } catch (error) {
-
-        stats.saveErrors++;
-
-
-        console.error(
-            `FIREBASE SAVE ERROR -> ${fixtureId}`
-        );
-
-
-        console.error(
-            error.message
-        );
-
-
-        // مهم:
-        // نرمي الخطأ حتى يفشل GitHub
-        throw error;
-    }
-}
-
-
-// =====================================================
-// حفظ مجموعة مباريات
-// =====================================================
-
-async function saveFixtures(
-    result,
-    source
-) {
-
-    if (
-        !result ||
-        !result.data ||
-        !Array.isArray(
-            result.data.response
-        )
-    ) {
-
-        throw new Error(
-            `${source}: invalid API response`
-        );
-    }
-
-
-    const list =
-        result.data.response;
-
-
-    console.log('');
-    console.log(
-        `${source}: ${list.length} fixtures received`
-    );
-
-
-    for (
-        const item
-        of list
-    ) {
-
-        await saveFixture(
+          async function saveFixture(
             item
-        );
-    }
-}
-
-
-// =====================================================
-// اختبار Firebase
-// =====================================================
-
-async function testFirebase() {
-
-    console.log('');
-    console.log('======================================');
-    console.log('FIREBASE WRITE TEST');
-    console.log('======================================');
-
-
-    const testRef =
-        db.ref(
-            '_sync_test'
-        );
-
-
-    const testData = {
-
-        status:
-            'OK',
-
-        message:
-            'GitHub can write to Firebase',
-
-        time:
-            new Date().toISOString()
-
-    };
-
-
-    try {
-
-        await testRef.set(
-            testData
-        );
-
-
-        console.log(
-            'FIREBASE WRITE TEST: SUCCESS'
-        );
-
-
-        const check =
-            await testRef.once(
-                'value'
-            );
-
-
-        if (
-            !check.exists()
-        ) {
-
-            throw new Error(
-                'Firebase write completed but read-back failed'
-            );
-        }
-
-
-        console.log(
-            'FIREBASE READ TEST: SUCCESS'
-        );
-
-
-        await testRef.remove();
-
-
-        console.log(
-            'FIREBASE TEST DATA REMOVED'
-        );
-
-
-    } catch (error) {
-
-        console.error(
-            'FIREBASE CONNECTION TEST FAILED'
-        );
-
-
-        console.error(
-            error.message
-        );
-
-
-        throw error;
-    }
-}
-
-
-// =====================================================
-// تنظيف المباريات القديمة
-// =====================================================
-
-async function cleanupOldMatches() {
-
-    console.log('');
-    console.log('======================================');
-    console.log('CLEANUP START');
-    console.log('======================================');
-
-
-    const today =
-        getBaghdadDate();
-
-
-    const yesterday =
-        addDays(
-            today,
-            -1
-        );
-
-
-    const tomorrow =
-        addDays(
-            today,
-            1
-        );
-
-
-    const allowedDates =
-        new Set([
-            yesterday,
-            today,
-            tomorrow
-        ]);
-
-
-    console.log(
-        `Allowed dates: ${yesterday}, ${today}, ${tomorrow}`
-    );
-
-
-    const snapshot =
-        await db
-            .ref('matches')
-            .once('value');
-
-
-    if (
-        !snapshot.exists()
-    ) {
-
-        console.log(
-            'Firebase matches is empty'
-        );
-
-        return;
-    }
-
-
-    const updates = {};
-
-
-    snapshot.forEach(
-        child => {
-
-            const item =
-                child.val();
-
+          ) {
 
             if (
-                !item ||
-                !item.fixture
+              !item ||
+              !item.fixture ||
+              !item.fixture.id
             ) {
 
-                updates[
-                    `matches/${child.key}`
-                ] = null;
+              stats.invalid++;
 
-
-                stats.removed++;
-
-                return;
+              return;
             }
+
+
+            const fixtureId =
+              String(
+                item.fixture.id
+              );
+
+
+            // -----------------------------------------------
+            // الدوري
+            // -----------------------------------------------
+
+            if (
+              !allowedLeague(item)
+            ) {
+
+              stats.skipped++;
+
+              return;
+            }
+
+
+            stats.allowed++;
+
+
+            // -----------------------------------------------
+            // الحالة
+            // -----------------------------------------------
+
+            normalizeStatus(
+              item
+            );
+
+
+            const status =
+              item.fixture.status &&
+              item.fixture.status.short
+                ? String(
+                    item.fixture.status.short
+                  ).toUpperCase()
+                : '';
+
+
+            const elapsed =
+              item.fixture.status &&
+              item.fixture.status.elapsed != null
+                ? item.fixture.status.elapsed
+                : '';
 
 
             const matchDate =
-                getMatchBaghdadDate(
-                    item.fixture.timestamp
+              getMatchBaghdadDate(
+                item.fixture.timestamp
+              );
+
+
+            console.log(
+              `SAVE | ID=${fixtureId} | DATE=${matchDate} | STATUS=${status} | ELAPSED=${elapsed}`
+            );
+
+
+            try {
+
+              await db
+                .ref(
+                  `matches/${fixtureId}`
+                )
+                .set(
+                  item
+                );
+
+
+              stats.saved++;
+
+
+              console.log(
+                `FIREBASE SAVED | matches/${fixtureId}`
+              );
+
+
+            } catch (error) {
+
+              stats.errors++;
+
+
+              console.error(
+                `FIREBASE SAVE ERROR | ${fixtureId}`
+              );
+
+
+              console.error(
+                error.message
+              );
+
+
+              throw error;
+            }
+          }
+
+
+          // =====================================================
+          // SAVE FIXTURES
+          // =====================================================
+
+          async function saveFixtures(
+            result,
+            source
+          ) {
+
+            if (
+              !result ||
+              !result.data ||
+              !Array.isArray(
+                result.data.response
+              )
+            ) {
+
+              throw new Error(
+                `${source}: invalid API response`
+              );
+            }
+
+
+            const list =
+              result.data.response;
+
+
+            console.log('');
+            console.log(
+              `${source}: ${list.length} fixtures`
+            );
+
+
+            for (
+              const item
+              of list
+            ) {
+
+              await saveFixture(
+                item
+              );
+            }
+          }
+
+
+          // =====================================================
+          // FIREBASE TEST
+          // =====================================================
+
+          async function testFirebase() {
+
+            console.log('');
+            console.log(
+              '======================================'
+            );
+
+            console.log(
+              'FIREBASE CONNECTION TEST'
+            );
+
+            console.log(
+              '======================================'
+            );
+
+
+            const ref =
+              db.ref(
+                '_sync_test'
+              );
+
+
+            const testData = {
+
+              status:
+                'OK',
+
+              source:
+                'GitHub Actions',
+
+              time:
+                new Date().toISOString()
+
+            };
+
+
+            try {
+
+              await ref.set(
+                testData
+              );
+
+
+              console.log(
+                'FIREBASE WRITE TEST: SUCCESS'
+              );
+
+
+              const result =
+                await ref.once(
+                  'value'
+                );
+
+
+              if (
+                !result.exists()
+              ) {
+
+                throw new Error(
+                  'Firebase read-back failed'
+                );
+              }
+
+
+              console.log(
+                'FIREBASE READ TEST: SUCCESS'
+              );
+
+
+              await ref.remove();
+
+
+              console.log(
+                'FIREBASE TEST CLEANED'
+              );
+
+
+            } catch (error) {
+
+              console.error(
+                'FIREBASE CONNECTION TEST FAILED'
+              );
+
+
+              console.error(
+                error.message
+              );
+
+
+              throw error;
+            }
+          }
+
+
+          // =====================================================
+          // CLEAN OLD MATCHES
+          // =====================================================
+
+          async function cleanupOldMatches() {
+
+            console.log('');
+            console.log(
+              '======================================'
+            );
+
+            console.log(
+              'CLEANUP OLD MATCHES'
+            );
+
+            console.log(
+              '======================================'
+            );
+
+
+            const today =
+              getBaghdadDate();
+
+
+            const yesterday =
+              addDays(
+                today,
+                -1
+              );
+
+
+            const tomorrow =
+              addDays(
+                today,
+                1
+              );
+
+
+            const allowedDates =
+              new Set([
+                yesterday,
+                today,
+                tomorrow
+              ]);
+
+
+            console.log(
+              `Allowed dates: ${yesterday} | ${today} | ${tomorrow}`
+            );
+
+
+            const snapshot =
+              await db
+                .ref(
+                  'matches'
+                )
+                .once(
+                  'value'
                 );
 
 
             if (
-                !allowedDates.has(
-                    matchDate
-                )
+              !snapshot.exists()
             ) {
 
-                updates[
-                    `matches/${child.key}`
-                ] = null;
+              console.log(
+                'Firebase /matches is empty'
+              );
 
 
-                stats.removed++;
-
-
-                console.log(
-                    `REMOVE OLD -> ${child.key} | ${matchDate}`
-                );
+              return;
             }
-        }
-    );
 
 
-    if (
-        Object.keys(updates).length > 0
-    ) {
+            const updates = {};
 
-        await db
-            .ref()
-            .update(
-                updates
+
+            snapshot.forEach(
+              child => {
+
+                try {
+
+                  const item =
+                    child.val();
+
+
+                  if (
+                    !item ||
+                    !item.fixture
+                  ) {
+
+                    updates[
+                      `matches/${child.key}`
+                    ] = null;
+
+
+                    stats.removed++;
+
+
+                    console.log(
+                      `REMOVE INVALID: ${child.key}`
+                    );
+
+
+                    return;
+                  }
+
+
+                  const matchDate =
+                    getMatchBaghdadDate(
+                      item.fixture.timestamp
+                    );
+
+
+                  if (
+                    !allowedDates.has(
+                      matchDate
+                    )
+                  ) {
+
+                    updates[
+                      `matches/${child.key}`
+                    ] = null;
+
+
+                    stats.removed++;
+
+
+                    console.log(
+                      `REMOVE OLD: ${child.key} | ${matchDate}`
+                    );
+                  }
+
+
+                } catch (error) {
+
+                  console.error(
+                    `CLEANUP ERROR: ${child.key}`
+                  );
+                }
+              }
             );
 
 
-        console.log(
-            `REMOVED: ${Object.keys(updates).length}`
-        );
+            if (
+              Object.keys(updates).length > 0
+            ) {
 
+              await db
+                .ref()
+                .update(
+                  updates
+                );
 
-    } else {
 
-        console.log(
-            'NO OLD MATCHES'
-        );
-    }
+              console.log(
+                `REMOVED: ${Object.keys(updates).length}`
+              );
 
 
-    console.log(
-        'CLEANUP COMPLETED'
-    );
-}
+            } else {
 
+              console.log(
+                'NO OLD MATCHES'
+              );
+            }
+          }
 
-// =====================================================
-// المزامنة الرئيسية
-// =====================================================
 
-async function sync() {
+          // =====================================================
+          // MAIN SYNC
+          // =====================================================
 
-    console.log('');
-    console.log('======================================');
-    console.log('FOOTBALL SYNC START');
-    console.log('======================================');
+          async function sync() {
 
-
-    const today =
-        getBaghdadDate();
-
-
-    const yesterday =
-        addDays(
-            today,
-            -1
-        );
-
-
-    const tomorrow =
-        addDays(
-            today,
-            1
-        );
-
-
-    console.log(
-        `Baghdad Today: ${today}`
-    );
-
-
-    console.log(
-        `Yesterday: ${yesterday}`
-    );
-
-
-    console.log(
-        `Tomorrow: ${tomorrow}`
-    );
-
-
-    // =================================================
-    // 1. اختبار Firebase
-    // =================================================
-
-    await testFirebase();
-
-
-    // =================================================
-    // 2. LIVE
-    // =================================================
-
-    console.log('');
-    console.log('LIVE UPDATE');
-
-
-    const liveResult =
-        await fetchAPI(
-            `${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`
-        );
-
-
-    await saveFixtures(
-        liveResult,
-        'LIVE'
-    );
-
-
-    // =================================================
-    // 3. أمس
-    // =================================================
-
-    console.log('');
-    console.log('YESTERDAY UPDATE');
-
-
-    const yesterdayResult =
-        await fetchAPI(
-            `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
-        );
-
-
-    await saveFixtures(
-        yesterdayResult,
-        'YESTERDAY'
-    );
-
-
-    // =================================================
-    // 4. اليوم
-    // =================================================
-
-    console.log('');
-    console.log('TODAY UPDATE');
-
-
-    const todayResult =
-        await fetchAPI(
-            `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
-        );
-
-
-    await saveFixtures(
-        todayResult,
-        'TODAY'
-    );
-
-
-    // =================================================
-    // 5. غداً
-    // =================================================
-
-    console.log('');
-    console.log('TOMORROW UPDATE');
-
-
-    const tomorrowResult =
-        await fetchAPI(
-            `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
-        );
-
-
-    await saveFixtures(
-        tomorrowResult,
-        'TOMORROW'
-    );
-
-
-    // =================================================
-    // 6. تنظيف
-    // =================================================
-
-    await cleanupOldMatches();
-
-
-    // =================================================
-    // التقرير النهائي
-    // =================================================
-
-    console.log('');
-    console.log('======================================');
-    console.log('SYNC REPORT');
-    console.log('======================================');
-
-
-    console.log(
-        `API REQUESTS: ${stats.apiRequests}`
-    );
-
-
-    console.log(
-        `API RECEIVED: ${stats.apiReceived}`
-    );
-
-
-    console.log(
-        `ALLOWED LEAGUES: ${stats.allowed}`
-    );
-
-
-    console.log(
-        `SAVED TO FIREBASE: ${stats.saved}`
-    );
-
-
-    console.log(
-        `SKIPPED LEAGUES: ${stats.skippedLeagues}`
-    );
-
-
-    console.log(
-        `INVALID: ${stats.invalid}`
-    );
-
-
-    console.log(
-        `SAVE ERRORS: ${stats.saveErrors}`
-    );
-
-
-    console.log(
-        `REMOVED OLD: ${stats.removed}`
-    );
-
-
-    console.log('======================================');
-
-
-    if (
-        stats.saved === 0
-    ) {
-
-        throw new Error(
-            'SYNC FINISHED BUT ZERO MATCHES WERE SAVED TO FIREBASE'
-        );
-    }
-
-
-    if (
-        stats.saveErrors > 0
-    ) {
-
-        throw new Error(
-            'One or more Firebase save operations failed'
-        );
-    }
-
-
-    console.log('');
-    console.log(
-        'SYNC COMPLETED SUCCESSFULLY'
-    );
-    console.log('');
-}
-
-
-// =====================================================
-// START
-// =====================================================
-
-sync()
-    .then(
-        () => {
-
-            process.exit(
-                0
+            console.log('');
+            console.log(
+              '======================================'
             );
-        }
-    )
-    .catch(
-        error => {
 
-            console.error('');
-            console.error('======================================');
-            console.error('SYNC FAILED');
-            console.error('======================================');
-            console.error(
-                error.stack ||
-                error.message
+            console.log(
+              'FOOTBALL SYNC START'
             );
-            console.error('======================================');
+
+            console.log(
+              '======================================'
+            );
 
 
-            process.exit(
+            const today =
+              getBaghdadDate();
+
+
+            const yesterday =
+              addDays(
+                today,
+                -1
+              );
+
+
+            const tomorrow =
+              addDays(
+                today,
                 1
+              );
+
+
+            console.log(
+              `TODAY: ${today}`
             );
-        }
-    );
+
+
+            console.log(
+              `YESTERDAY: ${yesterday}`
+            );
+
+
+            console.log(
+              `TOMORROW: ${tomorrow}`
+            );
+
+
+            // =================================================
+            // Firebase connection test
+            // =================================================
+
+            await testFirebase();
+
+
+            // =================================================
+            // LIVE
+            // =================================================
+
+            const liveResult =
+              await fetchAPI(
+                `${API_BASE}/fixtures?live=all&timezone=${TIMEZONE}`
+              );
+
+
+            await saveFixtures(
+              liveResult,
+              'LIVE'
+            );
+
+
+            // =================================================
+            // YESTERDAY
+            // =================================================
+
+            const yesterdayResult =
+              await fetchAPI(
+                `${API_BASE}/fixtures?date=${yesterday}&timezone=${TIMEZONE}`
+              );
+
+
+            await saveFixtures(
+              yesterdayResult,
+              'YESTERDAY'
+            );
+
+
+            // =================================================
+            // TODAY
+            // =================================================
+
+            const todayResult =
+              await fetchAPI(
+                `${API_BASE}/fixtures?date=${today}&timezone=${TIMEZONE}`
+              );
+
+
+            await saveFixtures(
+              todayResult,
+              'TODAY'
+            );
+
+
+            // =================================================
+            // TOMORROW
+            // =================================================
+
+            const tomorrowResult =
+              await fetchAPI(
+                `${API_BASE}/fixtures?date=${tomorrow}&timezone=${TIMEZONE}`
+              );
+
+
+            await saveFixtures(
+              tomorrowResult,
+              'TOMORROW'
+            );
+
+
+            // =================================================
+            // CLEANUP
+            // =================================================
+
+            await cleanupOldMatches();
+
+
+            // =================================================
+            // FINAL REPORT
+            // =================================================
+
+            console.log('');
+            console.log(
+              '======================================'
+            );
+
+            console.log(
+              'SYNC REPORT'
+            );
+
+            console.log(
+              '======================================'
+            );
+
+
+            console.log(
+              `API REQUESTS: ${stats.requests}`
+            );
+
+
+            console.log(
+              `API RECEIVED: ${stats.received}`
+            );
+
+
+            console.log(
+              `ALLOWED LEAGUES: ${stats.allowed}`
+            );
+
+
+            console.log(
+              `SAVED TO FIREBASE: ${stats.saved}`
+            );
+
+
+            console.log(
+              `SKIPPED LEAGUES: ${stats.skipped}`
+            );
+
+
+            console.log(
+              `INVALID: ${stats.invalid}`
+            );
+
+
+            console.log(
+              `FIREBASE ERRORS: ${stats.errors}`
+            );
+
+
+            console.log(
+              `REMOVED OLD: ${stats.removed}`
+            );
+
+
+            console.log(
+              '======================================'
+            );
+
+
+            // =================================================
+            // لا نعتبر العملية ناجحة إذا لم تحفظ أي مباراة
+            // =================================================
+
+            if (
+              stats.saved === 0
+            ) {
+
+              throw new Error(
+                'ZERO MATCHES SAVED TO FIREBASE'
+              );
+            }
+
+
+            if (
+              stats.errors > 0
+            ) {
+
+              throw new Error(
+                'FIREBASE SAVE ERRORS DETECTED'
+              );
+            }
+
+
+            console.log('');
+            console.log(
+              'SYNC COMPLETED SUCCESSFULLY'
+            );
+          }
+
+
+          // =====================================================
+          // START
+          // =====================================================
+
+          sync()
+            .then(
+              () => {
+
+                process.exit(
+                  0
+                );
+              }
+            )
+            .catch(
+              error => {
+
+                console.error('');
+                console.error(
+                  '======================================'
+                );
+
+                console.error(
+                  'SYNC FAILED'
+                );
+
+                console.error(
+                  error.stack ||
+                  error.message
+                );
+
+                console.error(
+                  '======================================'
+                );
+
+
+                process.exit(
+                  1
+                );
+              }
+            );
+
+          EOF
+
+
+      - name: Run Sync
+        env:
+
+          API_FOOTBALL_KEY:
+            ${{ secrets.API_FOOTBALL_KEY }}
+
+          FIREBASE_DATABASE_URL:
+            ${{ secrets.FIREBASE_DATABASE_URL }}
+
+          FIREBASE_SERVICE_ACCOUNT:
+            ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+        run: |
+          node sync.js
