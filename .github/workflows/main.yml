@@ -35,215 +35,450 @@ jobs:
           console.log("================================================");
           console.log("");
 
-          const BZZOIRO_API_KEY = process.env.BZZOIRO_API_KEY;
+          const BZZOIRO_API_KEY =
+            process.env.BZZOIRO_API_KEY;
+
           const FIREBASE_SERVICE_ACCOUNT =
             process.env.FIREBASE_SERVICE_ACCOUNT;
+
           const FIREBASE_DATABASE_URL =
             process.env.FIREBASE_DATABASE_URL;
 
+
+          /*
+          ============================================================
+          CHECK SECRETS
+          ============================================================
+          */
+
           if (!BZZOIRO_API_KEY) {
-            console.error("❌ BZZOIRO_API_KEY غير موجود");
+            console.error(
+              "❌ BZZOIRO_API_KEY غير موجود"
+            );
             process.exit(1);
           }
 
           if (!FIREBASE_SERVICE_ACCOUNT) {
-            console.error("❌ FIREBASE_SERVICE_ACCOUNT غير موجود");
+            console.error(
+              "❌ FIREBASE_SERVICE_ACCOUNT غير موجود"
+            );
             process.exit(1);
           }
 
           if (!FIREBASE_DATABASE_URL) {
-            console.error("❌ FIREBASE_DATABASE_URL غير موجود");
+            console.error(
+              "❌ FIREBASE_DATABASE_URL غير موجود"
+            );
             process.exit(1);
           }
 
-          console.log("✅ BZZOIRO_API_KEY موجود");
-          console.log("✅ FIREBASE_SERVICE_ACCOUNT موجود");
-          console.log("✅ FIREBASE_DATABASE_URL موجود");
+
+          console.log(
+            "✅ BZZOIRO_API_KEY موجود"
+          );
+
+          console.log(
+            "✅ FIREBASE_SERVICE_ACCOUNT موجود"
+          );
+
+          console.log(
+            "✅ FIREBASE_DATABASE_URL موجود"
+          );
+
+
+          /*
+          ============================================================
+          INSTALL FIREBASE ADMIN
+          ============================================================
+          */
 
           console.log("");
-          console.log("📦 Installing firebase-admin...");
+          console.log(
+            "📦 Installing firebase-admin..."
+          );
 
           try {
+
             execSync(
               "npm install firebase-admin@latest --no-save",
-              { stdio: "inherit" }
+              {
+                stdio: "inherit"
+              }
             );
+
           } catch (error) {
-            console.error("❌ فشل تثبيت firebase-admin");
+
+            console.error(
+              "❌ فشل تثبيت firebase-admin"
+            );
+
             process.exit(1);
+
           }
 
-          const admin = require("firebase-admin");
+
+          /*
+          ============================================================
+          LOAD FIREBASE ADMIN
+          ============================================================
+          */
+
+          let admin;
+
+          try {
+
+            admin =
+              require("firebase-admin");
+
+            console.log(
+              "✅ firebase-admin loaded"
+            );
+
+          } catch (error) {
+
+            console.error(
+              "❌ فشل تحميل firebase-admin"
+            );
+
+            console.error(
+              error.stack ||
+              error.message
+            );
+
+            process.exit(1);
+
+          }
+
+
+          /*
+          ============================================================
+          CHECK FIREBASE ADMIN
+          ============================================================
+          */
+
+          console.log("");
+
+          console.log(
+            "🔍 فحص Firebase Admin..."
+          );
+
+          if (!admin) {
+
+            console.error(
+              "❌ admin غير موجود"
+            );
+
+            process.exit(1);
+
+          }
+
+          if (!admin.initializeApp) {
+
+            console.error(
+              "❌ initializeApp غير موجود"
+            );
+
+            process.exit(1);
+
+          }
+
+          if (!admin.credential) {
+
+            console.error(
+              "❌ credential غير موجود"
+            );
+
+            console.error(
+              "Firebase Admin package غير صحيح"
+            );
+
+            process.exit(1);
+
+          }
+
+          if (!admin.credential.cert) {
+
+            console.error(
+              "❌ credential.cert غير موجود"
+            );
+
+            process.exit(1);
+
+          }
+
+          console.log(
+            "✅ Firebase Admin جاهز"
+          );
+
+
+          /*
+          ============================================================
+          PARSE SERVICE ACCOUNT
+          ============================================================
+          */
 
           let serviceAccount;
 
           try {
+
             serviceAccount =
-              JSON.parse(FIREBASE_SERVICE_ACCOUNT);
+              JSON.parse(
+                FIREBASE_SERVICE_ACCOUNT
+              );
+
           } catch (error) {
+
             console.error(
               "❌ FIREBASE_SERVICE_ACCOUNT ليس JSON صالحًا"
             );
-            console.error(error.message);
+
+            console.error(
+              error.message
+            );
+
             process.exit(1);
+
           }
 
-          try {
-            admin.initializeApp({
-              credential: admin.credential.cert(serviceAccount),
-              databaseURL: FIREBASE_DATABASE_URL
-            });
-          } catch (error) {
-            console.error("❌ فشل تشغيل Firebase");
-            console.error(error.message);
-            process.exit(1);
-          }
-
-          const db = admin.database();
-          const firebaseRef = db.ref("firebase");
-
-          console.log("");
-          console.log("✅ Firebase initialized");
 
           /*
           ============================================================
-          كل العمليات التي تحتوي await موجودة داخل async function
+          FIREBASE INIT
+          ============================================================
+          */
+
+          try {
+
+            admin.initializeApp({
+
+              credential:
+                admin.credential.cert(
+                  serviceAccount
+                ),
+
+              databaseURL:
+                FIREBASE_DATABASE_URL
+
+            });
+
+            console.log(
+              "✅ Firebase initialized"
+            );
+
+          } catch (error) {
+
+            console.error(
+              "❌ فشل تشغيل Firebase"
+            );
+
+            console.error(
+              error.stack ||
+              error.message
+            );
+
+            process.exit(1);
+
+          }
+
+
+          const db =
+            admin.database();
+
+          const firebaseRef =
+            db.ref("firebase");
+
+
+          /*
+          ============================================================
+          ASYNC MAIN
           ============================================================
           */
 
           (async () => {
 
+
             /*
-            ============================================================
+            ========================================================
             BZZOIRO REQUEST
-            ============================================================
+            ========================================================
             */
 
             function bzzoiroRequest(path) {
 
-              return new Promise((resolve, reject) => {
+              return new Promise(
+                (resolve, reject) => {
 
-                const options = {
-                  hostname: "sports.bzzoiro.com",
-                  path: path,
-                  method: "GET",
+                  const options = {
 
-                  headers: {
-                    "Authorization":
-                      `Token ${BZZOIRO_API_KEY}`,
+                    hostname:
+                      "sports.bzzoiro.com",
 
-                    "Accept":
-                      "application/json"
-                  }
-                };
+                    path:
+                      path,
 
-                const req = https.request(
-                  options,
-                  res => {
+                    method:
+                      "GET",
 
-                    let data = "";
+                    headers: {
 
-                    res.on(
-                      "data",
-                      chunk => {
-                        data += chunk;
-                      }
-                    );
+                      "Authorization":
+                        `Token ${BZZOIRO_API_KEY}`,
 
-                    res.on(
-                      "end",
-                      () => {
+                      "Accept":
+                        "application/json"
 
-                        console.log(
-                          `Bzzoiro HTTP ${res.statusCode} - ${path}`
+                    }
+
+                  };
+
+
+                  const req =
+                    https.request(
+                      options,
+                      res => {
+
+                        let data = "";
+
+
+                        res.on(
+                          "data",
+                          chunk => {
+
+                            data += chunk;
+
+                          }
                         );
 
-                        if (
-                          res.statusCode < 200 ||
-                          res.statusCode >= 300
-                        ) {
 
-                          console.error(
-                            data.substring(0, 3000)
-                          );
+                        res.on(
+                          "end",
+                          () => {
 
-                          reject(
-                            new Error(
-                              `Bzzoiro HTTP ${res.statusCode}`
-                            )
-                          );
+                            console.log(
+                              `Bzzoiro HTTP ${res.statusCode} - ${path}`
+                            );
 
-                          return;
-                        }
 
-                        try {
+                            if (
+                              res.statusCode < 200 ||
+                              res.statusCode >= 300
+                            ) {
 
-                          resolve(
-                            JSON.parse(data)
-                          );
+                              console.error(
+                                data.substring(
+                                  0,
+                                  3000
+                                )
+                              );
 
-                        } catch (error) {
+                              reject(
+                                new Error(
+                                  `Bzzoiro HTTP ${res.statusCode}`
+                                )
+                              );
 
-                          reject(
-                            new Error(
-                              "Bzzoiro returned invalid JSON"
-                            )
-                          );
+                              return;
 
-                        }
+                            }
+
+
+                            try {
+
+                              resolve(
+                                JSON.parse(
+                                  data
+                                )
+                              );
+
+                            } catch (error) {
+
+                              reject(
+                                new Error(
+                                  "Bzzoiro returned invalid JSON"
+                                )
+                              );
+
+                            }
+
+                          }
+                        );
 
                       }
                     );
 
-                  }
-                );
 
-                req.on(
-                  "error",
-                  error => {
-                    reject(error);
-                  }
-                );
+                  req.on(
+                    "error",
+                    error => {
 
-                req.end();
+                      reject(
+                        error
+                      );
 
-              });
+                    }
+                  );
+
+
+                  req.end();
+
+                }
+              );
 
             }
 
 
             /*
-            ============================================================
-            استخراج الأحداث من استجابة API
-            ============================================================
+            ========================================================
+            EXTRACT EVENTS
+            ========================================================
             */
 
             function extractEvents(data) {
 
-              if (Array.isArray(data)) {
+              if (
+                Array.isArray(data)
+              ) {
+
                 return data;
+
               }
+
 
               if (
                 data &&
-                Array.isArray(data.results)
+                Array.isArray(
+                  data.results
+                )
               ) {
+
                 return data.results;
+
               }
+
 
               if (
                 data &&
-                Array.isArray(data.events)
+                Array.isArray(
+                  data.events
+                )
               ) {
+
                 return data.events;
+
               }
+
 
               if (
                 data &&
-                Array.isArray(data.data)
+                Array.isArray(
+                  data.data
+                )
               ) {
+
                 return data.data;
+
               }
+
 
               return [];
 
@@ -251,49 +486,75 @@ jobs:
 
 
             /*
-            ============================================================
-            تاريخ بغداد
-            ============================================================
+            ========================================================
+            BAGHDAD DATE
+            ========================================================
             */
 
-            function getBaghdadDate(offsetDays) {
+            function getBaghdadDate(
+              offsetDays
+            ) {
 
-              const now = new Date();
+              const now =
+                new Date();
+
 
               const formatter =
                 new Intl.DateTimeFormat(
                   "en-CA",
                   {
-                    timeZone: "Asia/Baghdad",
-                    year: "numeric",
-                    month: "2-digit",
-                    day: "2-digit"
+
+                    timeZone:
+                      "Asia/Baghdad",
+
+                    year:
+                      "numeric",
+
+                    month:
+                      "2-digit",
+
+                    day:
+                      "2-digit"
+
                   }
                 );
 
+
               const parts =
-                formatter.formatToParts(now);
+                formatter.formatToParts(
+                  now
+                );
+
 
               const year =
                 Number(
                   parts.find(
-                    p => p.type === "year"
+                    p =>
+                      p.type ===
+                      "year"
                   ).value
                 );
+
 
               const month =
                 Number(
                   parts.find(
-                    p => p.type === "month"
+                    p =>
+                      p.type ===
+                      "month"
                   ).value
                 );
+
 
               const day =
                 Number(
                   parts.find(
-                    p => p.type === "day"
+                    p =>
+                      p.type ===
+                      "day"
                   ).value
                 );
+
 
               const date =
                 new Date(
@@ -304,13 +565,19 @@ jobs:
                   )
                 );
 
+
               date.setUTCDate(
-                date.getUTCDate() + offsetDays
+                date.getUTCDate() +
+                offsetDays
               );
+
 
               return date
                 .toISOString()
-                .substring(0, 10);
+                .substring(
+                  0,
+                  10
+                );
 
             }
 
@@ -326,6 +593,7 @@ jobs:
 
 
             console.log("");
+
             console.log(
               `🇮🇶 أمس    : ${yesterday}`
             );
@@ -340,12 +608,14 @@ jobs:
 
 
             /*
-            ============================================================
-            تحويل UTC إلى بغداد
-            ============================================================
+            ========================================================
+            UTC -> BAGHDAD
+            ========================================================
             */
 
-            function convertToBaghdad(isoDate) {
+            function convertToBaghdad(
+              isoDate
+            ) {
 
               if (!isoDate) {
 
@@ -356,8 +626,12 @@ jobs:
 
               }
 
+
               const date =
-                new Date(isoDate);
+                new Date(
+                  isoDate
+                );
+
 
               if (
                 Number.isNaN(
@@ -366,119 +640,193 @@ jobs:
               ) {
 
                 return {
-                  date:
-                    String(isoDate)
-                      .substring(0, 10),
 
-                  time: ""
+                  date:
+                    String(
+                      isoDate
+                    ).substring(
+                      0,
+                      10
+                    ),
+
+                  time:
+                    ""
+
                 };
 
               }
+
 
               const dateFormatter =
                 new Intl.DateTimeFormat(
                   "en-CA",
                   {
-                    timeZone: "Asia/Baghdad",
-                    year: "numeric",
-                    month: "2-digit",
-                    day: "2-digit"
+
+                    timeZone:
+                      "Asia/Baghdad",
+
+                    year:
+                      "numeric",
+
+                    month:
+                      "2-digit",
+
+                    day:
+                      "2-digit"
+
                   }
                 );
+
 
               const timeFormatter =
                 new Intl.DateTimeFormat(
                   "en-US",
                   {
-                    timeZone: "Asia/Baghdad",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: true
+
+                    timeZone:
+                      "Asia/Baghdad",
+
+                    hour:
+                      "2-digit",
+
+                    minute:
+                      "2-digit",
+
+                    hour12:
+                      true
+
                   }
                 );
+
 
               const dateParts =
                 dateFormatter.formatToParts(
                   date
                 );
 
+
               const year =
                 dateParts.find(
-                  p => p.type === "year"
+                  p =>
+                    p.type ===
+                    "year"
                 ).value;
+
 
               const month =
                 dateParts.find(
-                  p => p.type === "month"
+                  p =>
+                    p.type ===
+                    "month"
                 ).value;
+
 
               const day =
                 dateParts.find(
-                  p => p.type === "day"
+                  p =>
+                    p.type ===
+                    "day"
                 ).value;
+
 
               const formattedDate =
                 `${year}-${month}-${day}`;
 
+
               let formattedTime =
-                timeFormatter.format(date);
+                timeFormatter.format(
+                  date
+                );
+
 
               formattedTime =
                 formattedTime
-                  .replace("AM", "ص")
-                  .replace("PM", "م");
+                  .replace(
+                    "AM",
+                    "ص"
+                  )
+                  .replace(
+                    "PM",
+                    "م"
+                  );
+
 
               return {
-                date: formattedDate,
-                time: formattedTime
+
+                date:
+                  formattedDate,
+
+                time:
+                  formattedTime
+
               };
 
             }
 
 
             /*
-            ============================================================
-            حالة المباراة
-            ============================================================
+            ========================================================
+            STATUS
+            ========================================================
             */
 
-            function normalizeStatus(status) {
+            function normalizeStatus(
+              status
+            ) {
 
               if (!status) {
+
                 return "notstarted";
+
               }
+
 
               const s =
                 String(status)
                   .toLowerCase()
                   .trim();
 
+
               if (
                 s === "live" ||
                 s === "inplay" ||
                 s === "in_play"
               ) {
+
                 return "live";
+
               }
+
 
               if (
                 s === "finished" ||
                 s === "ft" ||
                 s === "fulltime"
               ) {
+
                 return "finished";
+
               }
 
-              if (s === "postponed") {
+
+              if (
+                s === "postponed"
+              ) {
+
                 return "postponed";
+
               }
+
 
               if (
                 s === "cancelled" ||
                 s === "canceled"
               ) {
+
                 return "cancelled";
+
               }
+
 
               if (
                 s === "notstarted" ||
@@ -486,34 +834,62 @@ jobs:
                 s === "scheduled" ||
                 s === "upcoming"
               ) {
+
                 return "notstarted";
+
               }
+
 
               return s;
 
             }
 
 
-            function getArabicStatus(status) {
+            function getArabicStatus(
+              status
+            ) {
 
               const s =
-                normalizeStatus(status);
+                normalizeStatus(
+                  status
+                );
 
-              if (s === "live") {
+
+              if (
+                s === "live"
+              ) {
+
                 return "مباشر";
+
               }
 
-              if (s === "finished") {
+
+              if (
+                s === "finished"
+              ) {
+
                 return "انتهت";
+
               }
 
-              if (s === "postponed") {
+
+              if (
+                s === "postponed"
+              ) {
+
                 return "مؤجلة";
+
               }
 
-              if (s === "cancelled") {
+
+              if (
+                s === "cancelled"
+              ) {
+
                 return "ملغاة";
+
               }
+
 
               return "لم تبدأ";
 
@@ -521,37 +897,50 @@ jobs:
 
 
             /*
-            ============================================================
-            CACHE للدوريات
-            ============================================================
+            ========================================================
+            LEAGUE CACHE
+            ========================================================
             */
 
             const leagueCache =
               new Map();
 
 
-            async function getLeague(leagueId) {
+            async function getLeague(
+              leagueId
+            ) {
 
               if (!leagueId) {
 
                 return {
+
                   id: "",
                   name: "",
                   country: ""
+
                 };
 
               }
 
+
               const key =
-                String(leagueId);
+                String(
+                  leagueId
+                );
+
 
               if (
-                leagueCache.has(key)
+                leagueCache.has(
+                  key
+                )
               ) {
 
-                return leagueCache.get(key);
+                return leagueCache.get(
+                  key
+                );
 
               }
+
 
               try {
 
@@ -559,6 +948,7 @@ jobs:
                   await bzzoiroRequest(
                     `/api/v2/leagues/${leagueId}/`
                   );
+
 
                 const league = {
 
@@ -576,10 +966,12 @@ jobs:
 
                 };
 
+
                 leagueCache.set(
                   key,
                   league
                 );
+
 
                 return league;
 
@@ -589,18 +981,26 @@ jobs:
                   `⚠️ تعذر جلب الدوري ${leagueId}`
                 );
 
+
                 const fallback = {
 
-                  id: leagueId,
-                  name: "",
-                  country: ""
+                  id:
+                    leagueId,
+
+                  name:
+                    "",
+
+                  country:
+                    ""
 
                 };
+
 
                 leagueCache.set(
                   key,
                   fallback
                 );
+
 
                 return fallback;
 
@@ -610,17 +1010,21 @@ jobs:
 
 
             /*
-            ============================================================
-            جلب كل صفحات المباريات
-            ============================================================
+            ========================================================
+            GET MATCHES
+            ========================================================
             */
 
-            async function getDayMatches(date) {
+            async function getDayMatches(
+              date
+            ) {
 
               console.log("");
+
               console.log(
                 `🔎 جلب مباريات: ${date}`
               );
+
 
               const allEvents = [];
 
@@ -629,6 +1033,7 @@ jobs:
               const limit = 200;
 
               let pageNumber = 1;
+
 
               while (true) {
 
@@ -639,43 +1044,48 @@ jobs:
                   `&limit=${limit}` +
                   `&offset=${offset}`;
 
+
                 const data =
                   await bzzoiroRequest(
                     path
                   );
 
+
                 const events =
-                  extractEvents(data);
+                  extractEvents(
+                    data
+                  );
+
 
                 console.log(
                   `📄 الصفحة ${pageNumber}: ${events.length} مباراة`
                 );
 
+
                 allEvents.push(
                   ...events
                 );
 
-                /*
-                إذا رجعت الصفحة أقل من limit
-                فهذا يعني غالبًا أنها آخر صفحة.
-                */
 
                 if (
-                  events.length < limit
+                  events.length <
+                  limit
                 ) {
+
                   break;
+
                 }
 
-                offset += limit;
+
+                offset +=
+                  limit;
 
                 pageNumber++;
 
-                /*
-                حماية إضافية حتى لا ندخل
-                في loop لا نهائي.
-                */
 
-                if (pageNumber > 50) {
+                if (
+                  pageNumber > 50
+                ) {
 
                   console.warn(
                     "⚠️ تم الوصول إلى حد الصفحات"
@@ -687,12 +1097,10 @@ jobs:
 
               }
 
-              /*
-              إزالة التكرار حسب ID
-              */
 
               const unique =
                 new Map();
+
 
               for (
                 const event
@@ -705,7 +1113,9 @@ jobs:
                 ) {
 
                   unique.set(
-                    String(event.id),
+                    String(
+                      event.id
+                    ),
                     event
                   );
 
@@ -713,14 +1123,17 @@ jobs:
 
               }
 
+
               const result =
                 Array.from(
                   unique.values()
                 );
 
+
               console.log(
                 `✅ ${date}: ${result.length} مباراة`
               );
+
 
               return result;
 
@@ -728,9 +1141,9 @@ jobs:
 
 
             /*
-            ============================================================
-            MATCHES MAP
-            ============================================================
+            ========================================================
+            MATCH MAP
+            ========================================================
             */
 
             const matchesMap =
@@ -738,9 +1151,9 @@ jobs:
 
 
             /*
-            ============================================================
-            إضافة مباراة
-            ============================================================
+            ========================================================
+            ADD MATCH
+            ========================================================
             */
 
             async function addMatch(
@@ -757,13 +1170,18 @@ jobs:
 
               }
 
+
               const matchId =
-                String(event.id);
+                String(
+                  event.id
+                );
+
 
               const converted =
                 convertToBaghdad(
                   event.event_date
                 );
+
 
               const league =
                 await getLeague(
@@ -774,6 +1192,7 @@ jobs:
               const homeTeamId =
                 event.home_team_id ??
                 "";
+
 
               const awayTeamId =
                 event.away_team_id ??
@@ -807,6 +1226,7 @@ jobs:
               const homeScore =
                 event.home_score ??
                 null;
+
 
               const awayScore =
                 event.away_score ??
@@ -979,9 +1399,9 @@ jobs:
 
 
             /*
-            ============================================================
-            جلب مباريات أمس
-            ============================================================
+            ========================================================
+            YESTERDAY
+            ========================================================
             */
 
             const yesterdayMatches =
@@ -1004,9 +1424,9 @@ jobs:
 
 
             /*
-            ============================================================
-            جلب مباريات اليوم
-            ============================================================
+            ========================================================
+            TODAY
+            ========================================================
             */
 
             const todayMatches =
@@ -1029,9 +1449,9 @@ jobs:
 
 
             /*
-            ============================================================
-            جلب مباريات غدًا
-            ============================================================
+            ========================================================
+            TOMORROW
+            ========================================================
             */
 
             const tomorrowMatches =
@@ -1054,12 +1474,13 @@ jobs:
 
 
             /*
-            ============================================================
+            ========================================================
             LIVE
-            ============================================================
+            ========================================================
             */
 
             console.log("");
+
             console.log(
               "🔴 فحص المباريات LIVE..."
             );
@@ -1110,9 +1531,9 @@ jobs:
 
 
             /*
-            ============================================================
-            تحويل MAP إلى ARRAY
-            ============================================================
+            ========================================================
+            SORT
+            ========================================================
             */
 
             const matches =
@@ -1120,12 +1541,6 @@ jobs:
                 matchesMap.values()
               );
 
-
-            /*
-            ============================================================
-            ترتيب الأيام
-            ============================================================
-            */
 
             const dayOrder = {
 
@@ -1177,12 +1592,13 @@ jobs:
 
 
             /*
-            ============================================================
-            DAY / LEAGUE HEADERS
-            ============================================================
+            ========================================================
+            HEADERS
+            ========================================================
             */
 
             let previousDay = "";
+
             let previousLeague = "";
 
 
@@ -1229,12 +1645,13 @@ jobs:
 
 
             /*
-            ============================================================
+            ========================================================
             SUMMARY
-            ============================================================
+            ========================================================
             */
 
             console.log("");
+
             console.log(
               "================================================"
             );
@@ -1269,9 +1686,9 @@ jobs:
 
 
             /*
-            ============================================================
-            تجهيز Firebase
-            ============================================================
+            ========================================================
+            FIREBASE DATA
+            ========================================================
             */
 
             const firebaseData = {};
@@ -1290,12 +1707,13 @@ jobs:
 
 
             /*
-            ============================================================
-            قراءة Firebase القديم
-            ============================================================
+            ========================================================
+            OLD FIREBASE
+            ========================================================
             */
 
             console.log("");
+
             console.log(
               "📥 قراءة بيانات Firebase..."
             );
@@ -1332,17 +1750,13 @@ jobs:
 
 
             /*
-            ============================================================
-            تجهيز Updates
-            ============================================================
+            ========================================================
+            UPDATES
+            ========================================================
             */
 
             const updates = {};
 
-
-            /*
-            حذف المباريات القديمة
-            */
 
             for (
               const key
@@ -1371,20 +1785,12 @@ jobs:
                   updates[key] =
                     null;
 
-                  console.log(
-                    `🗑️ حذف مباراة قديمة: ${key}`
-                  );
-
                 }
 
               }
 
             }
 
-
-            /*
-            إضافة المباريات الجديدة
-            */
 
             for (
               const match
@@ -1399,12 +1805,13 @@ jobs:
 
 
             /*
-            ============================================================
-            إرسال Firebase
-            ============================================================
+            ========================================================
+            WRITE FIREBASE
+            ========================================================
             */
 
             console.log("");
+
             console.log(
               "📤 إرسال البيانات إلى Firebase..."
             );
@@ -1423,6 +1830,7 @@ jobs:
               );
 
               console.error(
+                error.stack ||
                 error.message
               );
 
@@ -1432,12 +1840,13 @@ jobs:
 
 
             /*
-            ============================================================
-            عرض أول المباريات
-            ============================================================
+            ========================================================
+            PRINT MATCHES
+            ========================================================
             */
 
             console.log("");
+
             console.log(
               "================================================"
             );
@@ -1453,28 +1862,34 @@ jobs:
 
             for (
               const match
-              of matches.slice(0, 10)
+              of matches.slice(
+                0,
+                10
+              )
             ) {
 
               console.log(
+
                 `${match.match_date} | ` +
                 `${match.match_time} | ` +
                 `${match.home_team_name} vs ` +
                 `${match.away_team_name} | ` +
                 `${match.league_name} | ` +
                 `${match.status_text}`
+
               );
 
             }
 
 
             /*
-            ============================================================
-            DONE
-            ============================================================
+            ========================================================
+            SUCCESS
+            ========================================================
             */
 
             console.log("");
+
             console.log(
               "================================================"
             );
@@ -1501,9 +1916,9 @@ jobs:
 
 
             /*
-            ============================================================
-            إغلاق Firebase
-            ============================================================
+            ========================================================
+            CLOSE FIREBASE
+            ========================================================
             */
 
             try {
@@ -1520,30 +1935,34 @@ jobs:
 
             }
 
-          })().catch(error => {
 
-            console.error("");
-            console.error(
-              "================================================"
-            );
+          })().catch(
+            error => {
 
-            console.error(
-              "❌ SYNC FAILED"
-            );
+              console.error("");
 
-            console.error(
-              "================================================"
-            );
+              console.error(
+                "================================================"
+              );
 
-            console.error(
-              error &&
-              error.stack
-                ? error.stack
-                : error
-            );
+              console.error(
+                "❌ SYNC FAILED"
+              );
 
-            process.exit(1);
+              console.error(
+                "================================================"
+              );
 
-          });
+              console.error(
+                error &&
+                error.stack
+                  ? error.stack
+                  : error
+              );
+
+              process.exit(1);
+
+            }
+          );
 
           NODE
