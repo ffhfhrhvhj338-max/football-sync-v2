@@ -1,4 +1,4 @@
-name: Test Bzzoiro API
+name: Test Bzzoiro JSON
 
 on:
   workflow_dispatch:
@@ -8,15 +8,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Test Bzzoiro
+      - name: Read Bzzoiro JSON
         env:
           BZZOIRO_API_KEY: ${{ secrets.BZZOIRO_API_KEY }}
         run: |
@@ -30,8 +27,11 @@ jobs:
             process.exit(1);
           }
 
+          const today = new Date().toISOString().substring(0, 10);
+
           function request(path) {
             return new Promise((resolve, reject) => {
+
               const options = {
                 hostname: 'sports.bzzoiro.com',
                 path: path,
@@ -43,6 +43,7 @@ jobs:
               };
 
               const req = https.request(options, res => {
+
                 let data = '';
 
                 res.on('data', chunk => {
@@ -50,209 +51,101 @@ jobs:
                 });
 
                 res.on('end', () => {
-                  console.log(`\nHTTP ${res.statusCode} - ${path}`);
+
+                  console.log(`HTTP ${res.statusCode}`);
 
                   if (res.statusCode < 200 || res.statusCode >= 300) {
-                    console.log(data.substring(0, 1000));
-                    return reject(
+                    console.log(data.substring(0, 3000));
+                    reject(
                       new Error(`HTTP ${res.statusCode}`)
                     );
+                    return;
                   }
 
                   try {
                     resolve(JSON.parse(data));
                   } catch (e) {
-                    console.log(data.substring(0, 1000));
+                    console.log(data.substring(0, 3000));
                     reject(e);
                   }
+
                 });
+
               });
 
               req.on('error', reject);
+
               req.end();
             });
           }
 
-          function getDate(offset) {
-            const d = new Date();
-
-            d.setUTCDate(d.getUTCDate() + offset);
-
-            return d.toISOString().substring(0, 10);
-          }
-
           function extractEvents(data) {
-            if (Array.isArray(data)) return data;
 
-            if (Array.isArray(data.results)) return data.results;
+            if (Array.isArray(data)) {
+              return data;
+            }
 
-            if (Array.isArray(data.events)) return data.events;
+            if (Array.isArray(data.results)) {
+              return data.results;
+            }
 
-            if (Array.isArray(data.data)) return data.data;
+            if (Array.isArray(data.events)) {
+              return data.events;
+            }
+
+            if (Array.isArray(data.data)) {
+              return data.data;
+            }
 
             return [];
           }
 
-          function value(obj, keys) {
-            for (const key of keys) {
-              if (
-                obj &&
-                obj[key] !== undefined &&
-                obj[key] !== null
-              ) {
-                return obj[key];
-              }
-            }
-
-            return '';
-          }
-
-          function printEvents(title, events) {
-            console.log(`\n==============================`);
-            console.log(`${title}`);
-            console.log(`عدد المباريات: ${events.length}`);
-            console.log(`==============================`);
-
-            for (const event of events.slice(0, 20)) {
-
-              const home =
-                value(event, [
-                  'home_team_name',
-                  'home_team',
-                  'home'
-                ]);
-
-              const away =
-                value(event, [
-                  'away_team_name',
-                  'away_team',
-                  'away'
-                ]);
-
-              const league =
-                value(event, [
-                  'league_name',
-                  'competition_name',
-                  'league'
-                ]);
-
-              const date =
-                value(event, [
-                  'date',
-                  'match_date',
-                  'start_time',
-                  'datetime'
-                ]);
-
-              const status =
-                value(event, [
-                  'status',
-                  'match_status'
-                ]);
-
-              console.log(
-                `${league} | ${home} vs ${away} | ${date} | ${status}`
-              );
-            }
-          }
-
           (async () => {
 
-            console.log("================================");
-            console.log(" BZZOIRO API TEST - GOAL TV");
-            console.log("================================");
+            console.log("========================================");
+            console.log(" BZZOIRO RAW JSON TEST");
+            console.log("========================================");
 
-            const yesterday = getDate(-1);
-            const today = getDate(0);
-            const tomorrow = getDate(1);
+            console.log(`التاريخ: ${today}`);
 
-            console.log(`\nYesterday : ${yesterday}`);
-            console.log(`Today     : ${today}`);
-            console.log(`Tomorrow  : ${tomorrow}`);
+            const data = await request(
+              `/api/v2/events/?date_from=${today}&date_to=${today}`
+            );
 
-            // ----------------------------
-            // أمس
-            // ----------------------------
+            const events = extractEvents(data);
 
-            try {
-              const data = await request(
-                `/api/v2/events/?date_from=${yesterday}&date_to=${yesterday}`
-              );
+            console.log("");
+            console.log(`عدد المباريات: ${events.length}`);
 
-              const events = extractEvents(data);
-
-              printEvents(
-                `أمس - ${yesterday}`,
-                events
-              );
-
-            } catch (e) {
-              console.error("❌ فشل اختبار أمس:", e.message);
+            if (events.length === 0) {
+              console.log("❌ لا توجد مباريات اليوم");
+              process.exit(1);
             }
 
-            // ----------------------------
-            // اليوم
-            // ----------------------------
+            // أول مباراة
+            const match = events[0];
 
-            try {
-              const data = await request(
-                `/api/v2/events/?date_from=${today}&date_to=${today}`
-              );
+            console.log("");
+            console.log("========================================");
+            console.log(" المباراة الأولى - RAW JSON");
+            console.log("========================================");
 
-              const events = extractEvents(data);
+            console.log(
+              JSON.stringify(match, null, 2)
+            );
 
-              printEvents(
-                `اليوم - ${today}`,
-                events
-              );
-
-            } catch (e) {
-              console.error("❌ فشل اختبار اليوم:", e.message);
-            }
-
-            // ----------------------------
-            // غدًا
-            // ----------------------------
-
-            try {
-              const data = await request(
-                `/api/v2/events/?date_from=${tomorrow}&date_to=${tomorrow}`
-              );
-
-              const events = extractEvents(data);
-
-              printEvents(
-                `غدًا - ${tomorrow}`,
-                events
-              );
-
-            } catch (e) {
-              console.error("❌ فشل اختبار غدًا:", e.message);
-            }
-
-            // ----------------------------
-            // LIVE
-            // ----------------------------
-
-            try {
-              const data = await request(
-                `/api/v2/events/live/`
-              );
-
-              const events = extractEvents(data);
-
-              printEvents(
-                "LIVE",
-                events
-              );
-
-            } catch (e) {
-              console.error("❌ فشل اختبار LIVE:", e.message);
-            }
-
-            console.log("\n================================");
+            console.log("");
+            console.log("========================================");
             console.log(" انتهى الاختبار");
-            console.log("================================");
+            console.log("========================================");
 
-          })();
+          })().catch(error => {
+
+            console.error("");
+            console.error("❌ ERROR:");
+            console.error(error.message);
+
+            process.exit(1);
+
+          });
           NODE
