@@ -11,20 +11,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # ============================================================
-      # Node.js
-      # ============================================================
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-
-      # ============================================================
-      # Bzzoiro → Firebase
-      # ============================================================
 
       - name: Sync Football Data
         env:
@@ -33,1325 +23,1001 @@ jobs:
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
 
         run: |
-
-          # مهم جدًا:
-          # تشغيل Node كـ CommonJS حتى يعمل require()
           node --input-type=commonjs <<'NODE'
 
           const https = require("https");
           const { execSync } = require("child_process");
 
-
-          // ============================================================
-          // GOAL TV
-          // BZZOIRO → GITHUB ACTIONS → FIREBASE
-          // ============================================================
-
           console.log("");
           console.log("================================================");
           console.log(" GOAL TV FOOTBALL SYNC");
-          console.log(" BZZOIRO → FIREBASE");
+          console.log(" BZZOIRO -> FIREBASE");
           console.log("================================================");
           console.log("");
 
-
-          // ============================================================
-          // Secrets
-          // ============================================================
-
-          const BZZOIRO_API_KEY =
-            process.env.BZZOIRO_API_KEY;
-
+          const BZZOIRO_API_KEY = process.env.BZZOIRO_API_KEY;
           const FIREBASE_SERVICE_ACCOUNT =
             process.env.FIREBASE_SERVICE_ACCOUNT;
-
           const FIREBASE_DATABASE_URL =
             process.env.FIREBASE_DATABASE_URL;
 
-
           if (!BZZOIRO_API_KEY) {
-
-            console.error(
-              "❌ BZZOIRO_API_KEY غير موجود"
-            );
-
+            console.error("❌ BZZOIRO_API_KEY غير موجود");
             process.exit(1);
           }
-
 
           if (!FIREBASE_SERVICE_ACCOUNT) {
-
-            console.error(
-              "❌ FIREBASE_SERVICE_ACCOUNT غير موجود"
-            );
-
+            console.error("❌ FIREBASE_SERVICE_ACCOUNT غير موجود");
             process.exit(1);
           }
-
 
           if (!FIREBASE_DATABASE_URL) {
-
-            console.error(
-              "❌ FIREBASE_DATABASE_URL غير موجود"
-            );
-
+            console.error("❌ FIREBASE_DATABASE_URL غير موجود");
             process.exit(1);
           }
-
 
           console.log("✅ BZZOIRO_API_KEY موجود");
           console.log("✅ FIREBASE_SERVICE_ACCOUNT موجود");
           console.log("✅ FIREBASE_DATABASE_URL موجود");
 
-
-          // ============================================================
-          // تثبيت Firebase Admin
-          // ============================================================
-
           console.log("");
           console.log("📦 Installing firebase-admin...");
 
-
           try {
-
             execSync(
               "npm install firebase-admin@latest --no-save",
-              {
-                stdio: "inherit"
-              }
+              { stdio: "inherit" }
             );
-
           } catch (error) {
-
-            console.error(
-              "❌ فشل تثبيت firebase-admin"
-            );
-
+            console.error("❌ فشل تثبيت firebase-admin");
             process.exit(1);
           }
 
-
-          const admin =
-            require("firebase-admin");
-
-
-          // ============================================================
-          // Firebase Service Account
-          // ============================================================
+          const admin = require("firebase-admin");
 
           let serviceAccount;
 
-
           try {
-
             serviceAccount =
-              JSON.parse(
-                FIREBASE_SERVICE_ACCOUNT
-              );
-
+              JSON.parse(FIREBASE_SERVICE_ACCOUNT);
           } catch (error) {
-
             console.error(
               "❌ FIREBASE_SERVICE_ACCOUNT ليس JSON صالحًا"
             );
-
-            console.error(
-              error.message
-            );
-
+            console.error(error.message);
             process.exit(1);
           }
-
-
-          // ============================================================
-          // Firebase
-          // ============================================================
 
           try {
-
             admin.initializeApp({
-
-              credential:
-                admin.credential.cert(
-                  serviceAccount
-                ),
-
-              databaseURL:
-                FIREBASE_DATABASE_URL
-
+              credential: admin.credential.cert(serviceAccount),
+              databaseURL: FIREBASE_DATABASE_URL
             });
-
           } catch (error) {
-
-            console.error(
-              "❌ فشل تشغيل Firebase"
-            );
-
-            console.error(
-              error.message
-            );
-
+            console.error("❌ فشل تشغيل Firebase");
+            console.error(error.message);
             process.exit(1);
           }
 
-
-          const db =
-            admin.database();
-
-
-          const firebaseRef =
-            db.ref("firebase");
-
+          const db = admin.database();
+          const firebaseRef = db.ref("firebase");
 
           console.log("");
           console.log("✅ Firebase initialized");
 
+          /*
+          ============================================================
+          كل العمليات التي تحتوي await موجودة داخل async function
+          ============================================================
+          */
 
-          // ============================================================
-          // Bzzoiro Request
-          // ============================================================
+          (async () => {
 
-          function bzzoiroRequest(path) {
+            /*
+            ============================================================
+            BZZOIRO REQUEST
+            ============================================================
+            */
 
-            return new Promise(
-              (resolve, reject) => {
+            function bzzoiroRequest(path) {
+
+              return new Promise((resolve, reject) => {
 
                 const options = {
-
-                  hostname:
-                    "sports.bzzoiro.com",
-
-                  path:
-                    path,
-
-                  method:
-                    "GET",
+                  hostname: "sports.bzzoiro.com",
+                  path: path,
+                  method: "GET",
 
                   headers: {
-
                     "Authorization":
                       `Token ${BZZOIRO_API_KEY}`,
 
                     "Accept":
                       "application/json"
-
                   }
-
                 };
 
+                const req = https.request(
+                  options,
+                  res => {
 
-                const req =
-                  https.request(
-                    options,
-                    res => {
+                    let data = "";
 
-                      let data = "";
+                    res.on(
+                      "data",
+                      chunk => {
+                        data += chunk;
+                      }
+                    );
 
+                    res.on(
+                      "end",
+                      () => {
 
-                      res.on(
-                        "data",
-                        chunk => {
+                        console.log(
+                          `Bzzoiro HTTP ${res.statusCode} - ${path}`
+                        );
 
-                          data += chunk;
+                        if (
+                          res.statusCode < 200 ||
+                          res.statusCode >= 300
+                        ) {
 
-                        }
-                      );
-
-
-                      res.on(
-                        "end",
-                        () => {
-
-                          console.log(
-                            `Bzzoiro HTTP ${res.statusCode} - ${path}`
+                          console.error(
+                            data.substring(0, 3000)
                           );
 
+                          reject(
+                            new Error(
+                              `Bzzoiro HTTP ${res.statusCode}`
+                            )
+                          );
 
-                          if (
-                            res.statusCode < 200 ||
-                            res.statusCode >= 300
-                          ) {
+                          return;
+                        }
 
-                            console.error(
-                              data.substring(
-                                0,
-                                2000
-                              )
-                            );
+                        try {
 
+                          resolve(
+                            JSON.parse(data)
+                          );
 
-                            reject(
-                              new Error(
-                                `Bzzoiro HTTP ${res.statusCode}`
-                              )
-                            );
+                        } catch (error) {
 
-                            return;
-                          }
-
-
-                          try {
-
-                            resolve(
-                              JSON.parse(
-                                data
-                              )
-                            );
-
-                          } catch (error) {
-
-                            reject(
-                              new Error(
-                                "Bzzoiro returned invalid JSON"
-                              )
-                            );
-
-                          }
+                          reject(
+                            new Error(
+                              "Bzzoiro returned invalid JSON"
+                            )
+                          );
 
                         }
-                      );
 
-                    }
-                  );
+                      }
+                    );
 
+                  }
+                );
 
                 req.on(
                   "error",
                   error => {
-
                     reject(error);
-
                   }
                 );
 
-
                 req.end();
 
+              });
+
+            }
+
+
+            /*
+            ============================================================
+            استخراج الأحداث من استجابة API
+            ============================================================
+            */
+
+            function extractEvents(data) {
+
+              if (Array.isArray(data)) {
+                return data;
               }
-            );
 
-          }
+              if (
+                data &&
+                Array.isArray(data.results)
+              ) {
+                return data.results;
+              }
 
+              if (
+                data &&
+                Array.isArray(data.events)
+              ) {
+                return data.events;
+              }
 
-          // ============================================================
-          // استخراج المباريات
-          // ============================================================
+              if (
+                data &&
+                Array.isArray(data.data)
+              ) {
+                return data.data;
+              }
 
-          function extractEvents(data) {
-
-            if (
-              Array.isArray(data)
-            ) {
-
-              return data;
-
-            }
-
-
-            if (
-              Array.isArray(data.results)
-            ) {
-
-              return data.results;
+              return [];
 
             }
 
 
-            if (
-              Array.isArray(data.events)
-            ) {
-
-              return data.events;
-
-            }
-
-
-            if (
-              Array.isArray(data.data)
-            ) {
-
-              return data.data;
-
-            }
-
-
-            return [];
-
-          }
-
-
-          // ============================================================
-          // تاريخ بغداد
-          // ============================================================
-
-          function getBaghdadDate(
-            offsetDays
-          ) {
-
-            const now =
-              new Date();
-
-
-            const formatter =
-              new Intl.DateTimeFormat(
-                "en-CA",
-                {
-                  timeZone:
-                    "Asia/Baghdad",
-
-                  year:
-                    "numeric",
-
-                  month:
-                    "2-digit",
-
-                  day:
-                    "2-digit"
-                }
-              );
-
-
-            const parts =
-              formatter.formatToParts(
-                now
-              );
-
-
-            const year =
-              Number(
-                parts.find(
-                  p =>
-                    p.type === "year"
-                ).value
-              );
-
-
-            const month =
-              Number(
-                parts.find(
-                  p =>
-                    p.type === "month"
-                ).value
-              );
-
-
-            const day =
-              Number(
-                parts.find(
-                  p =>
-                    p.type === "day"
-                ).value
-              );
-
-
-            const date =
-              new Date(
-                Date.UTC(
-                  year,
-                  month - 1,
-                  day
-                )
-              );
-
-
-            date.setUTCDate(
-              date.getUTCDate()
-              +
-              offsetDays
-            );
-
-
-            return date
-              .toISOString()
-              .substring(
-                0,
-                10
-              );
-
-          }
-
-
-          const yesterday =
-            getBaghdadDate(-1);
-
-
-          const today =
-            getBaghdadDate(0);
-
-
-          const tomorrow =
-            getBaghdadDate(1);
-
-
-          console.log("");
-          console.log(
-            `🇮🇶 أمس    : ${yesterday}`
-          );
-
-          console.log(
-            `🇮🇶 اليوم  : ${today}`
-          );
-
-          console.log(
-            `🇮🇶 غدًا   : ${tomorrow}`
-          );
-
-
-          // ============================================================
-          // تحويل وقت المباراة إلى بغداد
-          // ============================================================
-
-          function convertToBaghdad(
-            isoDate
-          ) {
-
-            if (
-              !isoDate
-            ) {
-
-              return {
-
-                date: "",
-
-                time: ""
-
-              };
-
-            }
-
-
-            const date =
-              new Date(
-                isoDate
-              );
-
-
-            if (
-              Number.isNaN(
-                date.getTime()
-              )
-            ) {
-
-              return {
-
-                date:
-                  String(
-                    isoDate
-                  ).substring(
-                    0,
-                    10
-                  ),
-
-                time: ""
-
-              };
-
-            }
-
-
-            const dateFormatter =
-              new Intl.DateTimeFormat(
-                "en-CA",
-                {
-
-                  timeZone:
-                    "Asia/Baghdad",
-
-                  year:
-                    "numeric",
-
-                  month:
-                    "2-digit",
-
-                  day:
-                    "2-digit"
-
-                }
-              );
-
-
-            const timeFormatter =
-              new Intl.DateTimeFormat(
-                "en-US",
-                {
-
-                  timeZone:
-                    "Asia/Baghdad",
-
-                  hour:
-                    "2-digit",
-
-                  minute:
-                    "2-digit",
-
-                  hour12:
-                    true
-
-                }
-              );
-
-
-            const dateParts =
-              dateFormatter.formatToParts(
-                date
-              );
-
-
-            const year =
-              dateParts.find(
-                p =>
-                  p.type === "year"
-              ).value;
-
-
-            const month =
-              dateParts.find(
-                p =>
-                  p.type === "month"
-              ).value;
-
-
-            const day =
-              dateParts.find(
-                p =>
-                  p.type === "day"
-              ).value;
-
-
-            const formattedDate =
-              `${year}-${month}-${day}`;
-
-
-            let formattedTime =
-              timeFormatter.format(
-                date
-              );
-
-
-            formattedTime =
-              formattedTime
-                .replace(
-                  "AM",
-                  "ص"
-                )
-                .replace(
-                  "PM",
-                  "م"
+            /*
+            ============================================================
+            تاريخ بغداد
+            ============================================================
+            */
+
+            function getBaghdadDate(offsetDays) {
+
+              const now = new Date();
+
+              const formatter =
+                new Intl.DateTimeFormat(
+                  "en-CA",
+                  {
+                    timeZone: "Asia/Baghdad",
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit"
+                  }
                 );
 
-
-            return {
-
-              date:
-                formattedDate,
-
-              time:
-                formattedTime
-
-            };
-
-          }
-
-
-          // ============================================================
-          // حالة المباراة
-          // ============================================================
-
-          function normalizeStatus(
-            status
-          ) {
-
-            if (
-              !status
-            ) {
-
-              return "notstarted";
-
-            }
-
-
-            const s =
-              String(
-                status
-              )
-              .toLowerCase()
-              .trim();
-
-
-            if (
-              s === "live" ||
-              s === "inplay" ||
-              s === "in_play"
-            ) {
-
-              return "live";
-
-            }
-
-
-            if (
-              s === "finished" ||
-              s === "ft" ||
-              s === "fulltime"
-            ) {
-
-              return "finished";
-
-            }
-
-
-            if (
-              s === "postponed"
-            ) {
-
-              return "postponed";
-
-            }
-
-
-            if (
-              s === "cancelled" ||
-              s === "canceled"
-            ) {
-
-              return "cancelled";
-
-            }
-
-
-            if (
-              s === "notstarted" ||
-              s === "not_started" ||
-              s === "scheduled" ||
-              s === "upcoming"
-            ) {
-
-              return "notstarted";
-
-            }
-
-
-            return s;
-
-          }
-
-
-          // ============================================================
-          // الحالة العربية
-          // ============================================================
-
-          function getArabicStatus(
-            status
-          ) {
-
-            const s =
-              normalizeStatus(
-                status
-              );
-
-
-            if (
-              s === "live"
-            ) {
-
-              return "مباشر";
-
-            }
-
-
-            if (
-              s === "finished"
-            ) {
-
-              return "انتهت";
-
-            }
-
-
-            if (
-              s === "postponed"
-            ) {
-
-              return "مؤجلة";
-
-            }
-
-
-            if (
-              s === "cancelled"
-            ) {
-
-              return "ملغاة";
-
-            }
-
-
-            return "لم تبدأ";
-
-          }
-
-
-          // ============================================================
-          // Cache للدوريات
-          // ============================================================
-
-          const leagueCache =
-            new Map();
-
-
-          async function getLeague(
-            leagueId
-          ) {
-
-            if (
-              !leagueId
-            ) {
-
-              return {
-
-                id: "",
-
-                name: "",
-
-                country: ""
-
-              };
-
-            }
-
-
-            const key =
-              String(
-                leagueId
-              );
-
-
-            if (
-              leagueCache.has(
-                key
-              )
-            ) {
-
-              return leagueCache.get(
-                key
-              );
-
-            }
-
-
-            try {
-
-              const data =
-                await bzzoiroRequest(
-                  `/api/v2/leagues/${leagueId}/`
+              const parts =
+                formatter.formatToParts(now);
+
+              const year =
+                Number(
+                  parts.find(
+                    p => p.type === "year"
+                  ).value
                 );
 
+              const month =
+                Number(
+                  parts.find(
+                    p => p.type === "month"
+                  ).value
+                );
 
-              const league = {
+              const day =
+                Number(
+                  parts.find(
+                    p => p.type === "day"
+                  ).value
+                );
 
-                id:
-                  data.id ??
-                  leagueId,
+              const date =
+                new Date(
+                  Date.UTC(
+                    year,
+                    month - 1,
+                    day
+                  )
+                );
 
-                name:
-                  data.name ??
-                  "",
-
-                country:
-                  data.country ??
-                  ""
-
-              };
-
-
-              leagueCache.set(
-                key,
-                league
+              date.setUTCDate(
+                date.getUTCDate() + offsetDays
               );
 
-
-              return league;
-
-            } catch (error) {
-
-              console.warn(
-                `⚠️ تعذر جلب الدوري ${leagueId}`
-              );
-
-
-              const fallback = {
-
-                id:
-                  leagueId,
-
-                name: "",
-
-                country: ""
-
-              };
-
-
-              leagueCache.set(
-                key,
-                fallback
-              );
-
-
-              return fallback;
+              return date
+                .toISOString()
+                .substring(0, 10);
 
             }
 
-          }
 
+            const yesterday =
+              getBaghdadDate(-1);
 
-          // ============================================================
-          // جلب مباريات يوم محدد
-          // ============================================================
+            const today =
+              getBaghdadDate(0);
 
-          async function getDayMatches(
-            date
-          ) {
+            const tomorrow =
+              getBaghdadDate(1);
+
 
             console.log("");
             console.log(
-              `🔎 جلب مباريات: ${date}`
+              `🇮🇶 أمس    : ${yesterday}`
             );
-
-
-            const path =
-              `/api/v2/events/?date_from=${date}&date_to=${date}`;
-
-
-            const data =
-              await bzzoiroRequest(
-                path
-              );
-
-
-            const events =
-              extractEvents(
-                data
-              );
-
 
             console.log(
-              `✅ ${date}: ${events.length} مباراة`
+              `🇮🇶 اليوم  : ${today}`
+            );
+
+            console.log(
+              `🇮🇶 غدًا   : ${tomorrow}`
             );
 
 
-            return events;
+            /*
+            ============================================================
+            تحويل UTC إلى بغداد
+            ============================================================
+            */
 
-          }
+            function convertToBaghdad(isoDate) {
 
+              if (!isoDate) {
 
-          // ============================================================
-          // جميع المباريات
-          // ============================================================
+                return {
+                  date: "",
+                  time: ""
+                };
 
-          const matchesMap =
-            new Map();
+              }
 
+              const date =
+                new Date(isoDate);
 
-          // ============================================================
-          // إضافة مباراة
-          // ============================================================
+              if (
+                Number.isNaN(
+                  date.getTime()
+                )
+              ) {
 
-          async function addMatch(
-            event,
-            dayTitle
-          ) {
+                return {
+                  date:
+                    String(isoDate)
+                      .substring(0, 10),
 
-            if (
-              !event ||
-              !event.id
-            ) {
+                  time: ""
+                };
 
-              return;
+              }
+
+              const dateFormatter =
+                new Intl.DateTimeFormat(
+                  "en-CA",
+                  {
+                    timeZone: "Asia/Baghdad",
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit"
+                  }
+                );
+
+              const timeFormatter =
+                new Intl.DateTimeFormat(
+                  "en-US",
+                  {
+                    timeZone: "Asia/Baghdad",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true
+                  }
+                );
+
+              const dateParts =
+                dateFormatter.formatToParts(
+                  date
+                );
+
+              const year =
+                dateParts.find(
+                  p => p.type === "year"
+                ).value;
+
+              const month =
+                dateParts.find(
+                  p => p.type === "month"
+                ).value;
+
+              const day =
+                dateParts.find(
+                  p => p.type === "day"
+                ).value;
+
+              const formattedDate =
+                `${year}-${month}-${day}`;
+
+              let formattedTime =
+                timeFormatter.format(date);
+
+              formattedTime =
+                formattedTime
+                  .replace("AM", "ص")
+                  .replace("PM", "م");
+
+              return {
+                date: formattedDate,
+                time: formattedTime
+              };
 
             }
 
 
-            const matchId =
-              String(
-                event.id
+            /*
+            ============================================================
+            حالة المباراة
+            ============================================================
+            */
+
+            function normalizeStatus(status) {
+
+              if (!status) {
+                return "notstarted";
+              }
+
+              const s =
+                String(status)
+                  .toLowerCase()
+                  .trim();
+
+              if (
+                s === "live" ||
+                s === "inplay" ||
+                s === "in_play"
+              ) {
+                return "live";
+              }
+
+              if (
+                s === "finished" ||
+                s === "ft" ||
+                s === "fulltime"
+              ) {
+                return "finished";
+              }
+
+              if (s === "postponed") {
+                return "postponed";
+              }
+
+              if (
+                s === "cancelled" ||
+                s === "canceled"
+              ) {
+                return "cancelled";
+              }
+
+              if (
+                s === "notstarted" ||
+                s === "not_started" ||
+                s === "scheduled" ||
+                s === "upcoming"
+              ) {
+                return "notstarted";
+              }
+
+              return s;
+
+            }
+
+
+            function getArabicStatus(status) {
+
+              const s =
+                normalizeStatus(status);
+
+              if (s === "live") {
+                return "مباشر";
+              }
+
+              if (s === "finished") {
+                return "انتهت";
+              }
+
+              if (s === "postponed") {
+                return "مؤجلة";
+              }
+
+              if (s === "cancelled") {
+                return "ملغاة";
+              }
+
+              return "لم تبدأ";
+
+            }
+
+
+            /*
+            ============================================================
+            CACHE للدوريات
+            ============================================================
+            */
+
+            const leagueCache =
+              new Map();
+
+
+            async function getLeague(leagueId) {
+
+              if (!leagueId) {
+
+                return {
+                  id: "",
+                  name: "",
+                  country: ""
+                };
+
+              }
+
+              const key =
+                String(leagueId);
+
+              if (
+                leagueCache.has(key)
+              ) {
+
+                return leagueCache.get(key);
+
+              }
+
+              try {
+
+                const data =
+                  await bzzoiroRequest(
+                    `/api/v2/leagues/${leagueId}/`
+                  );
+
+                const league = {
+
+                  id:
+                    data.id ??
+                    leagueId,
+
+                  name:
+                    data.name ??
+                    "",
+
+                  country:
+                    data.country ??
+                    ""
+
+                };
+
+                leagueCache.set(
+                  key,
+                  league
+                );
+
+                return league;
+
+              } catch (error) {
+
+                console.warn(
+                  `⚠️ تعذر جلب الدوري ${leagueId}`
+                );
+
+                const fallback = {
+
+                  id: leagueId,
+                  name: "",
+                  country: ""
+
+                };
+
+                leagueCache.set(
+                  key,
+                  fallback
+                );
+
+                return fallback;
+
+              }
+
+            }
+
+
+            /*
+            ============================================================
+            جلب كل صفحات المباريات
+            ============================================================
+            */
+
+            async function getDayMatches(date) {
+
+              console.log("");
+              console.log(
+                `🔎 جلب مباريات: ${date}`
               );
 
+              const allEvents = [];
 
-            const converted =
-              convertToBaghdad(
-                event.event_date
+              let offset = 0;
+
+              const limit = 200;
+
+              let pageNumber = 1;
+
+              while (true) {
+
+                const path =
+                  `/api/v2/events/?` +
+                  `date_from=${date}` +
+                  `&date_to=${date}` +
+                  `&limit=${limit}` +
+                  `&offset=${offset}`;
+
+                const data =
+                  await bzzoiroRequest(
+                    path
+                  );
+
+                const events =
+                  extractEvents(data);
+
+                console.log(
+                  `📄 الصفحة ${pageNumber}: ${events.length} مباراة`
+                );
+
+                allEvents.push(
+                  ...events
+                );
+
+                /*
+                إذا رجعت الصفحة أقل من limit
+                فهذا يعني غالبًا أنها آخر صفحة.
+                */
+
+                if (
+                  events.length < limit
+                ) {
+                  break;
+                }
+
+                offset += limit;
+
+                pageNumber++;
+
+                /*
+                حماية إضافية حتى لا ندخل
+                في loop لا نهائي.
+                */
+
+                if (pageNumber > 50) {
+
+                  console.warn(
+                    "⚠️ تم الوصول إلى حد الصفحات"
+                  );
+
+                  break;
+
+                }
+
+              }
+
+              /*
+              إزالة التكرار حسب ID
+              */
+
+              const unique =
+                new Map();
+
+              for (
+                const event
+                of allEvents
+              ) {
+
+                if (
+                  event &&
+                  event.id
+                ) {
+
+                  unique.set(
+                    String(event.id),
+                    event
+                  );
+
+                }
+
+              }
+
+              const result =
+                Array.from(
+                  unique.values()
+                );
+
+              console.log(
+                `✅ ${date}: ${result.length} مباراة`
               );
 
+              return result;
 
-            // ----------------------------------------
-            // الدوري
-            // ----------------------------------------
+            }
 
-            const league =
-              await getLeague(
+
+            /*
+            ============================================================
+            MATCHES MAP
+            ============================================================
+            */
+
+            const matchesMap =
+              new Map();
+
+
+            /*
+            ============================================================
+            إضافة مباراة
+            ============================================================
+            */
+
+            async function addMatch(
+              event,
+              dayTitle
+            ) {
+
+              if (
+                !event ||
+                !event.id
+              ) {
+
+                return;
+
+              }
+
+              const matchId =
+                String(event.id);
+
+              const converted =
+                convertToBaghdad(
+                  event.event_date
+                );
+
+              const league =
+                await getLeague(
+                  event.league_id
+                );
+
+
+              const homeTeamId =
+                event.home_team_id ??
+                "";
+
+              const awayTeamId =
+                event.away_team_id ??
+                "";
+
+
+              const homeTeamLogo =
+                homeTeamId
+                  ? `https://sports.bzzoiro.com/img/team/${homeTeamId}/`
+                  : "";
+
+
+              const awayTeamLogo =
+                awayTeamId
+                  ? `https://sports.bzzoiro.com/img/team/${awayTeamId}/`
+                  : "";
+
+
+              const leagueLogo =
                 event.league_id
+                  ? `https://sports.bzzoiro.com/img/league/${event.league_id}/`
+                  : "";
+
+
+              const status =
+                normalizeStatus(
+                  event.status
+                );
+
+
+              const homeScore =
+                event.home_score ??
+                null;
+
+              const awayScore =
+                event.away_score ??
+                null;
+
+
+              let score = "-";
+
+
+              if (
+                homeScore !== null &&
+                awayScore !== null
+              ) {
+
+                score =
+                  `${homeScore} - ${awayScore}`;
+
+              }
+
+
+              const match = {
+
+                match_id:
+                  matchId,
+
+                event_id:
+                  matchId,
+
+                item_type:
+                  "match",
+
+
+                match_date:
+                  converted.date,
+
+                match_day:
+                  dayTitle,
+
+                day_title:
+                  dayTitle,
+
+                match_time:
+                  converted.time,
+
+                event_date:
+                  event.event_date ??
+                  "",
+
+
+                match_status:
+                  status,
+
+                status:
+                  status,
+
+                status_text:
+                  getArabicStatus(
+                    status
+                  ),
+
+                current_minute:
+                  event.current_minute ??
+                  null,
+
+
+                home_score:
+                  homeScore,
+
+                away_score:
+                  awayScore,
+
+                home_score_ht:
+                  event.home_score_ht ??
+                  null,
+
+                away_score_ht:
+                  event.away_score_ht ??
+                  null,
+
+                match_score:
+                  score,
+
+
+                league_id:
+                  event.league_id ??
+                  "",
+
+                league_name:
+                  league.name ??
+                  "",
+
+                league_country:
+                  league.country ??
+                  "",
+
+                league_logo:
+                  leagueLogo,
+
+
+                home_team_id:
+                  homeTeamId,
+
+                home_team_name:
+                  event.home_team ??
+                  "",
+
+                home_team_logo:
+                  homeTeamLogo,
+
+
+                away_team_id:
+                  awayTeamId,
+
+                away_team_name:
+                  event.away_team ??
+                  "",
+
+                away_team_logo:
+                  awayTeamLogo,
+
+
+                round_number:
+                  event.round_number ??
+                  null,
+
+                round_name:
+                  event.round_name ??
+                  "",
+
+                round_label:
+                  event.round_label ??
+                  "",
+
+                stage:
+                  event.stage ??
+                  "",
+
+                stage_name:
+                  event.stage_name ??
+                  "",
+
+                venue_id:
+                  event.venue_id ??
+                  null,
+
+                referee_id:
+                  event.referee_id ??
+                  null,
+
+                live_websocket:
+                  event.live_websocket ??
+                  false,
+
+
+                show_day_header:
+                  false,
+
+                show_league_header:
+                  false
+
+              };
+
+
+              matchesMap.set(
+                matchId,
+                match
               );
-
-
-            // ----------------------------------------
-            // الفرق
-            // ----------------------------------------
-
-            const homeTeamId =
-              event.home_team_id ??
-              "";
-
-
-            const awayTeamId =
-              event.away_team_id ??
-              "";
-
-
-            // ----------------------------------------
-            // الشعارات
-            // ----------------------------------------
-
-            const homeTeamLogo =
-              homeTeamId
-                ? `https://sports.bzzoiro.com/img/team/${homeTeamId}/`
-                : "";
-
-
-            const awayTeamLogo =
-              awayTeamId
-                ? `https://sports.bzzoiro.com/img/team/${awayTeamId}/`
-                : "";
-
-
-            const leagueLogo =
-              event.league_id
-                ? `https://sports.bzzoiro.com/img/league/${event.league_id}/`
-                : "";
-
-
-            // ----------------------------------------
-            // الحالة
-            // ----------------------------------------
-
-            const status =
-              normalizeStatus(
-                event.status
-              );
-
-
-            // ----------------------------------------
-            // النتيجة
-            // ----------------------------------------
-
-            const homeScore =
-              event.home_score ??
-              null;
-
-
-            const awayScore =
-              event.away_score ??
-              null;
-
-
-            let score =
-              "-";
-
-
-            if (
-              homeScore !== null &&
-              awayScore !== null
-            ) {
-
-              score =
-                `${homeScore} - ${awayScore}`;
 
             }
 
 
-            // ----------------------------------------
-            // المباراة
-            // ----------------------------------------
-
-            const match = {
-
-              match_id:
-                matchId,
-
-              event_id:
-                matchId,
-
-              item_type:
-                "match",
-
-
-              // ==============================
-              // التاريخ والوقت
-              // ==============================
-
-              match_date:
-                converted.date,
-
-              match_day:
-                dayTitle,
-
-              day_title:
-                dayTitle,
-
-              match_time:
-                converted.time,
-
-              event_date:
-                event.event_date ??
-                "",
-
-
-              // ==============================
-              // الحالة
-              // ==============================
-
-              match_status:
-                status,
-
-              status:
-                status,
-
-              status_text:
-                getArabicStatus(
-                  status
-                ),
-
-              current_minute:
-                event.current_minute ??
-                null,
-
-
-              // ==============================
-              // النتيجة
-              // ==============================
-
-              home_score:
-                homeScore,
-
-              away_score:
-                awayScore,
-
-              home_score_ht:
-                event.home_score_ht ??
-                null,
-
-              away_score_ht:
-                event.away_score_ht ??
-                null,
-
-              match_score:
-                score,
-
-
-              // ==============================
-              // الدوري
-              // ==============================
-
-              league_id:
-                event.league_id ??
-                "",
-
-              league_name:
-                league.name ??
-                "",
-
-              league_country:
-                league.country ??
-                "",
-
-              league_logo:
-                leagueLogo,
-
-
-              // ==============================
-              // صاحب الأرض
-              // ==============================
-
-              home_team_id:
-                homeTeamId,
-
-              home_team_name:
-                event.home_team ??
-                "",
-
-              home_team_logo:
-                homeTeamLogo,
-
-
-              // ==============================
-              // الضيف
-              // ==============================
-
-              away_team_id:
-                awayTeamId,
-
-              away_team_name:
-                event.away_team ??
-                "",
-
-              away_team_logo:
-                awayTeamLogo,
-
-
-              // ==============================
-              // معلومات إضافية
-              // ==============================
-
-              round_number:
-                event.round_number ??
-                null,
-
-              round_name:
-                event.round_name ??
-                "",
-
-              round_label:
-                event.round_label ??
-                "",
-
-              stage:
-                event.stage ??
-                "",
-
-              stage_name:
-                event.stage_name ??
-                "",
-
-              venue_id:
-                event.venue_id ??
-                null,
-
-              referee_id:
-                event.referee_id ??
-                null,
-
-              live_websocket:
-                event.live_websocket ??
-                false,
-
-
-              // ==============================
-              // عناصر HomeActivity
-              // ==============================
-
-              show_day_header:
-                false,
-
-              show_league_header:
-                false
-
-            };
-
-
-            matchesMap.set(
-              matchId,
-              match
-            );
-
-          }
-
-
-          // ============================================================
-          // جلب أمس
-          // ============================================================
-
-          const yesterdayMatches =
-            await getDayMatches(
-              yesterday
-            );
-
-
-          for (
-            const event of yesterdayMatches
-          ) {
-
-            await addMatch(
-              event,
-              "أمس"
-            );
-
-          }
-
-
-          // ============================================================
-          // جلب اليوم
-          // ============================================================
-
-          const todayMatches =
-            await getDayMatches(
-              today
-            );
-
-
-          for (
-            const event of todayMatches
-          ) {
-
-            await addMatch(
-              event,
-              "اليوم"
-            );
-
-          }
-
-
-          // ============================================================
-          // جلب غدًا
-          // ============================================================
-
-          const tomorrowMatches =
-            await getDayMatches(
-              tomorrow
-            );
-
-
-          for (
-            const event of tomorrowMatches
-          ) {
-
-            await addMatch(
-              event,
-              "غدًا"
-            );
-
-          }
-
-
-          // ============================================================
-          // LIVE
-          // ============================================================
-
-          console.log("");
-          console.log(
-            "🔴 فحص المباريات LIVE..."
-          );
-
-
-          try {
-
-            const liveData =
-              await bzzoiroRequest(
-                "/api/v2/events/live/"
+            /*
+            ============================================================
+            جلب مباريات أمس
+            ============================================================
+            */
+
+            const yesterdayMatches =
+              await getDayMatches(
+                yesterday
               );
-
-
-            const liveMatches =
-              extractEvents(
-                liveData
-              );
-
-
-            console.log(
-              `🔴 LIVE: ${liveMatches.length}`
-            );
 
 
             for (
-              const event of liveMatches
+              const event
+              of yesterdayMatches
+            ) {
+
+              await addMatch(
+                event,
+                "أمس"
+              );
+
+            }
+
+
+            /*
+            ============================================================
+            جلب مباريات اليوم
+            ============================================================
+            */
+
+            const todayMatches =
+              await getDayMatches(
+                today
+              );
+
+
+            for (
+              const event
+              of todayMatches
             ) {
 
               await addMatch(
@@ -1361,418 +1027,523 @@ jobs:
 
             }
 
-          } catch (error) {
 
-            console.warn(
-              "⚠️ تعذر فحص LIVE"
+            /*
+            ============================================================
+            جلب مباريات غدًا
+            ============================================================
+            */
+
+            const tomorrowMatches =
+              await getDayMatches(
+                tomorrow
+              );
+
+
+            for (
+              const event
+              of tomorrowMatches
+            ) {
+
+              await addMatch(
+                event,
+                "غدًا"
+              );
+
+            }
+
+
+            /*
+            ============================================================
+            LIVE
+            ============================================================
+            */
+
+            console.log("");
+            console.log(
+              "🔴 فحص المباريات LIVE..."
             );
 
-            console.warn(
-              error.message
-            );
 
-          }
+            try {
 
-
-          // ============================================================
-          // تحويل Map إلى Array
-          // ============================================================
-
-          const matches =
-            Array.from(
-              matchesMap.values()
-            );
+              const liveData =
+                await bzzoiroRequest(
+                  "/api/v2/events/live/"
+                );
 
 
-          // ============================================================
-          // ترتيب الأيام
-          // ============================================================
-
-          const dayOrder = {
-
-            "أمس": 1,
-
-            "اليوم": 2,
-
-            "غدًا": 3
-
-          };
+              const liveMatches =
+                extractEvents(
+                  liveData
+                );
 
 
-          matches.sort(
-            (a, b) => {
-
-              const dayA =
-                dayOrder[
-                  a.day_title
-                ] ||
-                99;
+              console.log(
+                `🔴 LIVE: ${liveMatches.length}`
+              );
 
 
-              const dayB =
-                dayOrder[
-                  b.day_title
-                ] ||
-                99;
-
-
-              if (
-                dayA !== dayB
+              for (
+                const event
+                of liveMatches
               ) {
 
-                return (
-                  dayA -
-                  dayB
+                await addMatch(
+                  event,
+                  "اليوم"
                 );
 
               }
 
+            } catch (error) {
 
-              const timeA =
-                `${a.match_date} ${a.match_time}`;
+              console.warn(
+                "⚠️ تعذر فحص LIVE"
+              );
 
-
-              const timeB =
-                `${b.match_date} ${b.match_time}`;
-
-
-              return timeA.localeCompare(
-                timeB
+              console.warn(
+                error.message
               );
 
             }
-          );
 
 
-          // ============================================================
-          // Headers
-          // ============================================================
+            /*
+            ============================================================
+            تحويل MAP إلى ARRAY
+            ============================================================
+            */
 
-          let previousDay =
-            "";
-
-
-          let previousLeague =
-            "";
-
-
-          for (
-            const match of matches
-          ) {
-
-            if (
-              match.day_title !==
-              previousDay
-            ) {
-
-              match.show_day_header =
-                true;
-
-
-              previousDay =
-                match.day_title;
-
-
-              previousLeague =
-                "";
-
-            }
-
-
-            const leagueKey =
-              `${match.league_id}_${match.league_name}`;
-
-
-            if (
-              leagueKey !==
-              previousLeague
-            ) {
-
-              match.show_league_header =
-                true;
-
-
-              previousLeague =
-                leagueKey;
-
-            }
-
-          }
-
-
-          // ============================================================
-          // إحصائيات
-          // ============================================================
-
-          console.log("");
-          console.log(
-            "================================================"
-          );
-
-          console.log(
-            "📊 SYNC SUMMARY"
-          );
-
-          console.log(
-            "================================================"
-          );
-
-          console.log(
-            `📅 أمس    : ${yesterdayMatches.length}`
-          );
-
-          console.log(
-            `📅 اليوم  : ${todayMatches.length}`
-          );
-
-          console.log(
-            `📅 غدًا   : ${tomorrowMatches.length}`
-          );
-
-          console.log(
-            `⚽ إجمالي : ${matches.length}`
-          );
-
-          console.log(
-            `🏆 الدوريات: ${leagueCache.size}`
-          );
-
-
-          // ============================================================
-          // تجهيز Firebase
-          // ============================================================
-
-          const firebaseData =
-            {};
-
-
-          for (
-            const match of matches
-          ) {
-
-            firebaseData[
-              match.match_id
-            ] =
-              match;
-
-          }
-
-
-          // ============================================================
-          // قراءة Firebase
-          // ============================================================
-
-          console.log("");
-          console.log(
-            "📥 قراءة بيانات Firebase..."
-          );
-
-
-          let oldData =
-            {};
-
-
-          try {
-
-            const snapshot =
-              await firebaseRef.once(
-                "value"
+            const matches =
+              Array.from(
+                matchesMap.values()
               );
 
 
-            oldData =
-              snapshot.val() ||
-              {};
+            /*
+            ============================================================
+            ترتيب الأيام
+            ============================================================
+            */
 
-          } catch (error) {
+            const dayOrder = {
 
-            console.error(
-              "❌ فشل قراءة Firebase"
+              "أمس": 1,
+              "اليوم": 2,
+              "غدًا": 3
+
+            };
+
+
+            matches.sort(
+              (a, b) => {
+
+                const dayA =
+                  dayOrder[
+                    a.day_title
+                  ] || 99;
+
+
+                const dayB =
+                  dayOrder[
+                    b.day_title
+                  ] || 99;
+
+
+                if (
+                  dayA !== dayB
+                ) {
+
+                  return dayA - dayB;
+
+                }
+
+
+                const timeA =
+                  `${a.match_date} ${a.match_time}`;
+
+
+                const timeB =
+                  `${b.match_date} ${b.match_time}`;
+
+
+                return timeA.localeCompare(
+                  timeB
+                );
+
+              }
             );
 
-            console.error(
-              error.message
-            );
 
-            process.exit(1);
+            /*
+            ============================================================
+            DAY / LEAGUE HEADERS
+            ============================================================
+            */
 
-          }
-
-
-          // ============================================================
-          // تجهيز Updates
-          // ============================================================
-
-          const updates =
-            {};
+            let previousDay = "";
+            let previousLeague = "";
 
 
-          // ----------------------------------------
-          // حذف المباريات القديمة
-          // ----------------------------------------
-
-          for (
-            const key of Object.keys(
-              oldData
-            )
-          ) {
-
-            const oldMatch =
-              oldData[key];
-
-
-            if (
-              oldMatch &&
-              (
-                oldMatch.match_id ||
-                oldMatch.item_type ===
-                  "match"
-              )
+            for (
+              const match
+              of matches
             ) {
 
               if (
-                !firebaseData[key]
+                match.day_title !==
+                previousDay
               ) {
 
-                updates[key] =
-                  null;
+                match.show_day_header =
+                  true;
+
+                previousDay =
+                  match.day_title;
+
+                previousLeague =
+                  "";
+
+              }
+
+
+              const leagueKey =
+                `${match.league_id}_${match.league_name}`;
+
+
+              if (
+                leagueKey !==
+                previousLeague
+              ) {
+
+                match.show_league_header =
+                  true;
+
+                previousLeague =
+                  leagueKey;
 
               }
 
             }
 
-          }
 
+            /*
+            ============================================================
+            SUMMARY
+            ============================================================
+            */
 
-          // ----------------------------------------
-          // إضافة وتحديث المباريات
-          // ----------------------------------------
-
-          for (
-            const match of matches
-          ) {
-
-            updates[
-              match.match_id
-            ] =
-              match;
-
-          }
-
-
-          // ============================================================
-          // Firebase Update
-          // ============================================================
-
-          console.log("");
-          console.log(
-            "📤 إرسال البيانات إلى Firebase..."
-          );
-
-
-          try {
-
-            await firebaseRef.update(
-              updates
+            console.log("");
+            console.log(
+              "================================================"
             );
 
-          } catch (error) {
+            console.log(
+              "📊 SYNC SUMMARY"
+            );
 
+            console.log(
+              "================================================"
+            );
+
+            console.log(
+              `📅 أمس    : ${yesterdayMatches.length}`
+            );
+
+            console.log(
+              `📅 اليوم  : ${todayMatches.length}`
+            );
+
+            console.log(
+              `📅 غدًا   : ${tomorrowMatches.length}`
+            );
+
+            console.log(
+              `⚽ إجمالي : ${matches.length}`
+            );
+
+            console.log(
+              `🏆 الدوريات: ${leagueCache.size}`
+            );
+
+
+            /*
+            ============================================================
+            تجهيز Firebase
+            ============================================================
+            */
+
+            const firebaseData = {};
+
+
+            for (
+              const match
+              of matches
+            ) {
+
+              firebaseData[
+                match.match_id
+              ] = match;
+
+            }
+
+
+            /*
+            ============================================================
+            قراءة Firebase القديم
+            ============================================================
+            */
+
+            console.log("");
+            console.log(
+              "📥 قراءة بيانات Firebase..."
+            );
+
+
+            let oldData = {};
+
+
+            try {
+
+              const snapshot =
+                await firebaseRef.once(
+                  "value"
+                );
+
+
+              oldData =
+                snapshot.val() ||
+                {};
+
+            } catch (error) {
+
+              console.error(
+                "❌ فشل قراءة Firebase"
+              );
+
+              console.error(
+                error.message
+              );
+
+              process.exit(1);
+
+            }
+
+
+            /*
+            ============================================================
+            تجهيز Updates
+            ============================================================
+            */
+
+            const updates = {};
+
+
+            /*
+            حذف المباريات القديمة
+            */
+
+            for (
+              const key
+              of Object.keys(
+                oldData
+              )
+            ) {
+
+              const oldMatch =
+                oldData[key];
+
+
+              if (
+                oldMatch &&
+                (
+                  oldMatch.match_id ||
+                  oldMatch.item_type ===
+                  "match"
+                )
+              ) {
+
+                if (
+                  !firebaseData[key]
+                ) {
+
+                  updates[key] =
+                    null;
+
+                  console.log(
+                    `🗑️ حذف مباراة قديمة: ${key}`
+                  );
+
+                }
+
+              }
+
+            }
+
+
+            /*
+            إضافة المباريات الجديدة
+            */
+
+            for (
+              const match
+              of matches
+            ) {
+
+              updates[
+                match.match_id
+              ] = match;
+
+            }
+
+
+            /*
+            ============================================================
+            إرسال Firebase
+            ============================================================
+            */
+
+            console.log("");
+            console.log(
+              "📤 إرسال البيانات إلى Firebase..."
+            );
+
+
+            try {
+
+              await firebaseRef.update(
+                updates
+              );
+
+            } catch (error) {
+
+              console.error(
+                "❌ فشل تحديث Firebase"
+              );
+
+              console.error(
+                error.message
+              );
+
+              process.exit(1);
+
+            }
+
+
+            /*
+            ============================================================
+            عرض أول المباريات
+            ============================================================
+            */
+
+            console.log("");
+            console.log(
+              "================================================"
+            );
+
+            console.log(
+              "📋 أول 10 مباريات:"
+            );
+
+            console.log(
+              "================================================"
+            );
+
+
+            for (
+              const match
+              of matches.slice(0, 10)
+            ) {
+
+              console.log(
+                `${match.match_date} | ` +
+                `${match.match_time} | ` +
+                `${match.home_team_name} vs ` +
+                `${match.away_team_name} | ` +
+                `${match.league_name} | ` +
+                `${match.status_text}`
+              );
+
+            }
+
+
+            /*
+            ============================================================
+            DONE
+            ============================================================
+            */
+
+            console.log("");
+            console.log(
+              "================================================"
+            );
+
+            console.log(
+              "✅ تمت المزامنة بنجاح"
+            );
+
+            console.log(
+              "✅ Bzzoiro يعمل"
+            );
+
+            console.log(
+              "✅ Firebase يعمل"
+            );
+
+            console.log(
+              "✅ Goal TV data جاهزة"
+            );
+
+            console.log(
+              "================================================"
+            );
+
+
+            /*
+            ============================================================
+            إغلاق Firebase
+            ============================================================
+            */
+
+            try {
+
+              await admin
+                .app()
+                .delete();
+
+            } catch (error) {
+
+              console.warn(
+                "⚠️ تعذر إغلاق Firebase"
+              );
+
+            }
+
+          })().catch(error => {
+
+            console.error("");
             console.error(
-              "❌ فشل تحديث Firebase"
+              "================================================"
             );
 
             console.error(
-              error.message
+              "❌ SYNC FAILED"
+            );
+
+            console.error(
+              "================================================"
+            );
+
+            console.error(
+              error &&
+              error.stack
+                ? error.stack
+                : error
             );
 
             process.exit(1);
 
-          }
-
-
-          // ============================================================
-          // عرض أول 10 مباريات
-          // ============================================================
-
-          console.log("");
-          console.log(
-            "================================================"
-          );
-
-          console.log(
-            "📋 أول 10 مباريات:"
-          );
-
-          console.log(
-            "================================================"
-          );
-
-
-          for (
-            const match of matches.slice(
-              0,
-              10
-            )
-          ) {
-
-            console.log(
-              `${match.match_date} | ` +
-              `${match.match_time} | ` +
-              `${match.home_team_name} vs ${match.away_team_name} | ` +
-              `${match.league_name} | ` +
-              `${match.status_text}`
-            );
-
-          }
-
-
-          // ============================================================
-          // نجاح
-          // ============================================================
-
-          console.log("");
-          console.log(
-            "================================================"
-          );
-
-          console.log(
-            "✅ تمت المزامنة بنجاح"
-          );
-
-          console.log(
-            "✅ Bzzoiro يعمل"
-          );
-
-          console.log(
-            "✅ Firebase يعمل"
-          );
-
-          console.log(
-            "✅ Goal TV data جاهزة"
-          );
-
-          console.log(
-            "================================================"
-          );
-
-
-          // ============================================================
-          // إغلاق Firebase
-          // ============================================================
-
-          try {
-
-            await admin
-              .app()
-              .delete();
-
-          } catch (error) {
-
-            console.warn(
-              "⚠️ تعذر إغلاق Firebase"
-            );
-
-          }
+          });
 
           NODE
