@@ -1,4 +1,4 @@
-name: Test Bzzoiro JSON
+name: Test Bzzoiro Static Data
 
 on:
   workflow_dispatch:
@@ -13,11 +13,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Read Bzzoiro JSON
+      - name: Test League and Teams
         env:
           BZZOIRO_API_KEY: ${{ secrets.BZZOIRO_API_KEY }}
         run: |
           node <<'NODE'
+
           const https = require('https');
 
           const API_KEY = process.env.BZZOIRO_API_KEY;
@@ -27,9 +28,8 @@ jobs:
             process.exit(1);
           }
 
-          const today = new Date().toISOString().substring(0, 10);
-
           function request(path) {
+
             return new Promise((resolve, reject) => {
 
               const options = {
@@ -52,21 +52,29 @@ jobs:
 
                 res.on('end', () => {
 
-                  console.log(`HTTP ${res.statusCode}`);
+                  console.log(`\nHTTP ${res.statusCode} - ${path}`);
 
                   if (res.statusCode < 200 || res.statusCode >= 300) {
+
                     console.log(data.substring(0, 3000));
+
                     reject(
                       new Error(`HTTP ${res.statusCode}`)
                     );
+
                     return;
                   }
 
                   try {
+
                     resolve(JSON.parse(data));
-                  } catch (e) {
+
+                  } catch (error) {
+
                     console.log(data.substring(0, 3000));
-                    reject(e);
+
+                    reject(error);
+
                   }
 
                 });
@@ -76,67 +84,125 @@ jobs:
               req.on('error', reject);
 
               req.end();
+
             });
+
           }
 
-          function extractEvents(data) {
-
-            if (Array.isArray(data)) {
-              return data;
-            }
-
-            if (Array.isArray(data.results)) {
-              return data.results;
-            }
-
-            if (Array.isArray(data.events)) {
-              return data.events;
-            }
-
-            if (Array.isArray(data.data)) {
-              return data.data;
-            }
-
-            return [];
-          }
 
           (async () => {
 
             console.log("========================================");
-            console.log(" BZZOIRO RAW JSON TEST");
+            console.log(" BZZOIRO STATIC DATA TEST");
             console.log("========================================");
 
-            console.log(`التاريخ: ${today}`);
 
-            const data = await request(
-              `/api/v2/events/?date_from=${today}&date_to=${today}`
+            // ========================================
+            // IDs من مباراة Bahia vs Remo
+            // ========================================
+
+            const leagueId = 9;
+
+            const homeTeamId = 166;
+
+            const awayTeamId = 372;
+
+
+            // ========================================
+            // LEAGUE
+            // ========================================
+
+            console.log("");
+            console.log("========================================");
+            console.log(" LEAGUE DATA");
+            console.log("========================================");
+
+            const league = await request(
+              `/api/v2/leagues/${leagueId}/`
             );
 
-            const events = extractEvents(data);
+            console.log(
+              JSON.stringify(league, null, 2)
+            );
 
-            console.log("");
-            console.log(`عدد المباريات: ${events.length}`);
 
-            if (events.length === 0) {
-              console.log("❌ لا توجد مباريات اليوم");
-              process.exit(1);
-            }
-
-            // أول مباراة
-            const match = events[0];
+            // ========================================
+            // HOME TEAM
+            // ========================================
 
             console.log("");
             console.log("========================================");
-            console.log(" المباراة الأولى - RAW JSON");
+            console.log(" HOME TEAM DATA");
+            console.log("========================================");
+
+            const homeTeam = await request(
+              `/api/v2/teams/${homeTeamId}/`
+            );
+
+            console.log(
+              JSON.stringify(homeTeam, null, 2)
+            );
+
+
+            // ========================================
+            // AWAY TEAM
+            // ========================================
+
+            console.log("");
+            console.log("========================================");
+            console.log(" AWAY TEAM DATA");
+            console.log("========================================");
+
+            const awayTeam = await request(
+              `/api/v2/teams/${awayTeamId}/`
+            );
+
+            console.log(
+              JSON.stringify(awayTeam, null, 2)
+            );
+
+
+            // ========================================
+            // IMAGE URLS
+            // ========================================
+
+            console.log("");
+            console.log("========================================");
+            console.log(" IMAGE URLS");
             console.log("========================================");
 
             console.log(
-              JSON.stringify(match, null, 2)
+              "League Logo:"
+            );
+
+            console.log(
+              `https://sports.bzzoiro.com/img/league/${leagueId}/`
             );
 
             console.log("");
+
+            console.log(
+              "Home Team Logo:"
+            );
+
+            console.log(
+              `https://sports.bzzoiro.com/img/team/${homeTeamId}/`
+            );
+
+            console.log("");
+
+            console.log(
+              "Away Team Logo:"
+            );
+
+            console.log(
+              `https://sports.bzzoiro.com/img/team/${awayTeamId}/`
+            );
+
+
+            console.log("");
             console.log("========================================");
-            console.log(" انتهى الاختبار");
+            console.log(" TEST FINISHED");
             console.log("========================================");
 
           })().catch(error => {
@@ -148,4 +214,5 @@ jobs:
             process.exit(1);
 
           });
+
           NODE
